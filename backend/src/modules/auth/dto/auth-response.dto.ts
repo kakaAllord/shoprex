@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
+import { UserPermission, UserRole } from '@prisma/client';
 import type { AuthenticatedProfile, DevCredential, LoginResult } from '../auth.service';
 
 export class AuthenticatedProfileDto implements AuthenticatedProfile {
@@ -10,8 +10,14 @@ export class AuthenticatedProfileDto implements AuthenticatedProfile {
   })
   id!: string;
 
-  @ApiProperty({ example: 'owner@shoprex.co.tz' })
-  email!: string;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'owner@shoprex.co.tz',
+    description:
+      'Null for workers, who are created with a name and sign in on the device enrolled to them.',
+  })
+  email!: string | null;
 
   @ApiProperty({
     nullable: true,
@@ -37,6 +43,32 @@ export class AuthenticatedProfileDto implements AuthenticatedProfile {
 
   @ApiProperty({ nullable: true, type: String, example: 'Duka la Mfano' })
   businessName!: string | null;
+
+  @ApiProperty({
+    enum: UserPermission,
+    isArray: true,
+    example: [UserPermission.SELL],
+    description:
+      'What this person may do operationally, within their role. Enforced on the server — a client must not treat an empty list as merely a rendering hint.',
+  })
+  permissions!: UserPermission[];
+
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    format: 'uuid',
+    description:
+      'The enrolled device this session is bound to. Present only for a worker signed in through `POST /auth/device/login`; revoking that device ends the session on its next request.',
+  })
+  deviceId!: string | null;
+
+  @ApiProperty({
+    type: [String],
+    format: 'uuid',
+    description:
+      'The branches this person may act on. Every branch of the business for an owner; the assigned ones for a manager or worker.',
+  })
+  branchIds!: string[];
 
   @ApiProperty({
     enum: ['admin', 'owner'],

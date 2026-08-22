@@ -2,11 +2,15 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { DeviceSessionGuard } from './common/guards/device-session.guard';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
+import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { BranchesModule } from './modules/branches/branches.module';
 import { BusinessesModule } from './modules/businesses/businesses.module';
+import { DevicesModule } from './modules/devices/devices.module';
+import { UsersModule } from './modules/users/users.module';
 import { appConfiguration } from './config/configuration';
 import { validateEnvironment } from './config/env.validation';
 import { PrismaModule } from './database/prisma.module';
@@ -15,9 +19,10 @@ import { HealthModule } from './modules/health/health.module';
 /**
  * Shoprex V1 root module.
  *
- * Feature modules (auth, businesses, branches, users, devices, products,
- * stock, sales, payments, reports) are added from Phase 1 onward. Keep every
- * business rule inside a module or the domain layer, never in a controller.
+ * Feature modules (auth, businesses, branches, users, devices, audit,
+ * products, stock, sales, payments, reports) are added from Phase 1 onward.
+ * Keep every business rule inside a module or the domain layer, never in a
+ * controller.
  */
 @Module({
   imports: [
@@ -42,9 +47,12 @@ import { HealthModule } from './modules/health/health.module';
       },
     }),
     PrismaModule,
+    AuditModule,
     AuthModule,
     BusinessesModule,
     BranchesModule,
+    UsersModule,
+    DevicesModule,
     HealthModule,
   ],
   providers: [
@@ -54,6 +62,9 @@ import { HealthModule } from './modules/health/health.module';
     // Every route is authenticated unless marked @Public(), and role checks
     // run on the server for every request.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // Between the two on purpose: a revoked device must be turned away before
+    // any role check gets the chance to let it through.
+    { provide: APP_GUARD, useClass: DeviceSessionGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })

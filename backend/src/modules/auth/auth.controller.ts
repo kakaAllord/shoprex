@@ -25,6 +25,7 @@ import {
   DevCredentialDto,
   LoginResultDto,
 } from './dto/auth-response.dto';
+import { DeviceLoginDto } from './dto/device-login.dto';
 import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
 
@@ -83,6 +84,32 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   login(@Body() dto: LoginDto): Promise<LoginResult> {
     return this.authService.login(dto.email, dto.password);
+  }
+
+  /**
+   * A worker signing in on their own enrolled phone. Same strict rate-limit
+   * bucket as the email sign-in: this endpoint accepts a password too.
+   */
+  @ApiOperation({
+    summary: 'Sign in on an enrolled device',
+    description:
+      'For workers. The phone sends the `device_id` it stored at enrollment plus the worker’s password — no email and no enrollment code, because one device belongs to exactly one worker and the device *is* the attribution. A revoked device, an unknown device, and a wrong password are rejected identically. The returned token carries the device, so revoking the phone ends the session on its next request. Subject to the strict auth rate-limit bucket.',
+  })
+  @ApiOkResponse({ type: LoginResultDto })
+  @ApiUnauthorizedResponse({
+    type: ErrorResponseDto,
+    description:
+      'Unknown device, revoked device, deactivated worker, or wrong password — indistinguishable by design.',
+  })
+  @ApiTooManyRequestsResponse({
+    type: ErrorResponseDto,
+    description: 'Strict auth rate-limit bucket exceeded.',
+  })
+  @Public()
+  @Post('device/login')
+  @HttpCode(HttpStatus.OK)
+  deviceLogin(@Body() dto: DeviceLoginDto): Promise<LoginResult> {
+    return this.authService.loginDevice(dto.deviceId, dto.password);
   }
 
   @ApiOperation({

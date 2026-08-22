@@ -33,7 +33,7 @@ The role hierarchy is:
 | Platform administrator | Entire Shoprex platform | Create/manage shop accounts and platform-level operations |
 | Owner | Entire business | Manage branches, products, devices, users, payment methods, reports, and business-wide visibility |
 | Manager | Assigned branch or branches | Manage the branch within permissions delegated by the owner |
-| Worker | Assigned branch | Sell, receive stock, view stock, or view totals only when permitted |
+| Worker | Assigned branch | Sell, receive stock, view stock, or view totals only when permitted. Signs in on the one device enrolled to them, not by email |
 
 The owner may act as the manager for a branch. The data model must also support creating a separate manager later without forcing the owner to create a duplicate owner account.
 
@@ -50,6 +50,27 @@ A device is a first-class record, not merely an anonymous login session. At mini
 - creation, last-seen, and revocation timestamps.
 
 The QR code and link must contain a short-lived, single-use enrollment token rather than a permanent secret. After enrollment, the mobile app stores a device credential securely and uses the backend to authenticate the device. A revoked device must not create sales or stock movements.
+
+**As built in Phase 2.** `Device` carries the business, branch, and the one
+worker it belongs to; a server-minted uuid `id` *is* the `device_id`; a
+`DeviceStatus` of `ACTIVE` or `REVOKED`; `lastSeenAt`, `revokedAt`, and
+`revokedById`. There is no separate device password hash: because a device
+belongs to exactly one worker, the device credential is a *reference* to that
+worker's own password — the "or equivalent credential reference" this section
+allows. One password, one place, no drift between two copies of it.
+
+`DeviceEnrollmentToken` stores the SHA-256 hash of the code and never the code
+itself, plus `expiresAt`, `usedAt`, and the `deviceId` a successful bind
+produced. SHA-256 rather than bcrypt is deliberate: redemption has to *find* the
+row by the value presented, which needs a deterministic digest, and the input is
+a high-entropy random code rather than a human-chosen password. `usedAt` is set
+only by a bind that actually happened — a refused redemption leaves the code
+usable.
+
+A revoked device is stopped by `DeviceSessionGuard`, which runs on every
+device-authenticated request. That is one lookup per request, paid only by
+device sessions; it is what makes revocation take effect immediately rather than
+whenever the token happens to expire.
 
 Multiple devices are allowed in V1. Because V1 requires devices to be online, each authoritative transaction is accepted by the backend in normal request order. The system does not implement offline writes, an outbox, conflict resolution, or background reconciliation in this version.
 
@@ -150,15 +171,15 @@ Daily reports include business and branch identity, selected date, total sales, 
 
 The implementation may divide or rename tables, but it must preserve these concepts:
 
-| Area | Core records |
-|---|---|
-| Organization | businesses, branches, users, branch assignments, permissions |
-| Devices | devices, enrollment tokens, device sessions |
-| Catalogue | products, units, product units, unit relationships, prices, barcodes |
-| Stock | stock receipts, stock receipt lines, stock movements, current physical stock |
-| Sales | sales, sale lines, payments, debts, receipts |
-| Settings | payment methods, business settings |
-| Audit | actor, device, timestamps, idempotency records |
+| Area | Core records | Built |
+|---|---|---|
+| Organization | businesses, branches, users, branch assignments, permissions | Phase 1, plus `UserPermission[]` on `User` in Phase 2 |
+| Devices | devices, enrollment tokens, device sessions | Phase 2. A device session is the JWT's `deviceId` claim rather than a stored row — V1 is online-only and has no session table |
+| Catalogue | products, units, product units, unit relationships, prices, barcodes | Phase 3 |
+| Stock | stock receipts, stock receipt lines, stock movements, current physical stock | Phase 3 |
+| Sales | sales, sale lines, payments, debts, receipts | Phase 4 |
+| Settings | payment methods, business settings | Phase 4 seeds the defaults; Phase 6 owns the settings screen |
+| Audit | actor, device, timestamps, idempotency records | `AuditEvent` in Phase 2 (actor, role, device, target, server-clock timestamp). Idempotency records arrive with sales in Phase 4 |
 
 ## 10. Mandatory engine tests
 

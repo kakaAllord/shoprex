@@ -51,8 +51,11 @@ model Business {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  branches Branch[]
-  users    User[]
+  branches         Branch[]
+  users            User[]
+  devices          Device[]
+  enrollmentTokens DeviceEnrollmentToken[]
+  auditEvents      AuditEvent[]
 
   @@map("businesses")
 }
@@ -65,8 +68,11 @@ model Branch {
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
-  business    Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  assignments BranchAssignment[]
+  business         Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  assignments      BranchAssignment[]
+  devices          Device[]
+  enrollmentTokens DeviceEnrollmentToken[]
+  auditEvents      AuditEvent[]
 
   @@unique([businessId, name])
   @@index([businessId])
@@ -78,22 +84,33 @@ model Branch {
 model User {
   /// Stable internal identifier, minted at creation. Used for database
   /// identity and audit attribution; never used as a sign-in secret.
-  id           String    @id @default(uuid())
-  email        String    @unique
+  id           String           @id @default(uuid())
+  /// Owners, managers, and platform administrators sign in with an email.
+  /// Workers have none: they are created with a name and a password and
+  /// sign in on the device bound to them, so the column is nullable.
+  email        String?          @unique
   /// Normalised to +255XXXXXXXXX. Optional so platform administrators and
   /// workers (who sign in on a device) are not forced to supply one.
-  phone        String?   @unique
-  passwordHash String    @map("password_hash")
-  fullName     String    @map("full_name")
+  phone        String?          @unique
+  passwordHash String           @map("password_hash")
+  fullName     String           @map("full_name")
   role         UserRole
-  businessId   String?   @map("business_id")
-  isActive     Boolean   @default(true) @map("is_active")
-  lastLoginAt  DateTime? @map("last_login_at")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  businessId   String?          @map("business_id")
+  isActive     Boolean          @default(true) @map("is_active")
+  /// What this person may do operationally, within their role. Empty means
+  /// no operational permission has been granted yet.
+  permissions  UserPermission[]
+  lastLoginAt  DateTime?        @map("last_login_at")
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
 
-  business    Business?          @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  assignments BranchAssignment[]
+  business          Business?               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  assignments       BranchAssignment[]
+  devices           Device[]                @relation("DeviceHolder")
+  revokedDevices    Device[]                @relation("DeviceRevoker")
+  enrollmentTokens  DeviceEnrollmentToken[] @relation("EnrollmentSubject")
+  issuedEnrollments DeviceEnrollmentToken[] @relation("EnrollmentIssuer")
+  auditEvents       AuditEvent[]
 
   @@index([businessId])
   @@map("users")
@@ -113,4 +130,126 @@ model BranchAssignment {
   @@unique([userId, branchId])
   @@index([branchId])
   @@map("branch_assignments")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2 — people and devices.
+// One device belongs to exactly one worker: the device *is* the attribution,
+// which is why there is no per-worker PIN. See PROGRESS.md §2 and docs 02 §3.
+// ---------------------------------------------------------------------------
+
+/// What a person may do operationally, within the limits of their role.
+/// Enforced on the server; hiding a button in a client is not authorization.
+enum UserPermission {
+  SELL
+  RECEIVE_STOCK
+  VIEW_STOCK
+  VIEW_REPORTS
+}
+
+enum DeviceStatus {
+  ACTIVE
+  REVOKED
+}
+
+/// One Android installation, bound to one business, one branch, and one
+/// worker. `id` is the server-minted `device_id`: Android exposes no reliable
+/// permanent hardware identifier, so Shoprex mints its own and the app stores
+/// it. A client never supplies it at enrollment.
+model Device {
+  id          String       @id @default(uuid())
+  businessId  String       @map("business_id")
+  branchId    String       @map("branch_id")
+  /// The one worker this device belongs to. A second active device for the
+  /// same worker is refused until this one is revoked.
+  userId      String       @map("user_id")
+  /// The worker's own name, so the owner can see whose phone it is.
+  name        String
+  status      DeviceStatus @default(ACTIVE)
+  /// Set by the backend at enrollment and at each device sign-in.
+  lastSeenAt  DateTime?    @map("last_seen_at")
+  revokedAt   DateTime?    @map("revoked_at")
+  revokedById String?      @map("revoked_by_id")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  business   Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  branch     Branch                 @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  user       User                   @relation("DeviceHolder", fields: [userId], references: [id], onDelete: Cascade)
+  revokedBy  User?                  @relation("DeviceRevoker", fields: [revokedById], references: [id], onDelete: SetNull)
+  enrollment DeviceEnrollmentToken?
+
+  @@index([businessId])
+  @@index([branchId])
+  @@index([userId, status])
+  @@map("devices")
+}
+
+/// A single-use, short-lived secret the owner hands to a worker. Only the
+/// SHA-256 hash is stored — the plaintext is shown once, at issue, and never
+/// echoed back. A refused redemption must not consume it.
+model DeviceEnrollmentToken {
+  id         String    @id @default(uuid())
+  businessId String    @map("business_id")
+  branchId   String    @map("branch_id")
+  /// The worker this token enrolls. Derived from the worker's own branch
+  /// assignment, never from the request body.
+  userId     String    @map("user_id")
+  issuedById String    @map("issued_by_id")
+  tokenHash  String    @unique @map("token_hash")
+  expiresAt  DateTime  @map("expires_at")
+  /// Set only by a successful bind. A refusal leaves this null so the worker
+  /// is not stranded without a token.
+  usedAt     DateTime? @map("used_at")
+  deviceId   String?   @unique @map("device_id")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  branch   Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  user     User     @relation("EnrollmentSubject", fields: [userId], references: [id], onDelete: Cascade)
+  issuedBy User     @relation("EnrollmentIssuer", fields: [issuedById], references: [id], onDelete: Cascade)
+  device   Device?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([userId])
+  @@map("device_enrollment_tokens")
+}
+
+enum AuditAction {
+  BRANCH_CREATED
+  MANAGER_CREATED
+  WORKER_CREATED
+  PERMISSIONS_CHANGED
+  DEVICE_ENROLLMENT_ISSUED
+  DEVICE_ENROLLED
+  DEVICE_SIGNED_IN
+  DEVICE_REVOKED
+}
+
+/// Who did what, from which device, and when. `createdAt` is the backend
+/// server clock; no client supplies a time. Append-only — nothing rewrites an
+/// audit row.
+model AuditEvent {
+  id          String      @id @default(uuid())
+  businessId  String      @map("business_id")
+  branchId    String?     @map("branch_id")
+  /// Null only when the actor is no longer stored, never for a live action.
+  actorUserId String?     @map("actor_user_id")
+  actorRole   UserRole?   @map("actor_role")
+  /// Present when the action came from an enrolled device.
+  deviceId    String?     @map("device_id")
+  action      AuditAction
+  targetType  String?     @map("target_type")
+  targetId    String?     @map("target_id")
+  /// Short human-readable line for the owner. Never contains a secret.
+  summary     String
+  createdAt   DateTime    @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  branch   Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  actor    User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, createdAt])
+  @@index([deviceId])
+  @@map("audit_events")
 }

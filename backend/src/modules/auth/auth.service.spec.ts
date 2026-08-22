@@ -4,12 +4,14 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { UserRole } from '@prisma/client';
 import { UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import { AuthService } from './auth.service';
 
 describe('AuthService', () => {
   let service: AuthService;
   let findUnique: jest.Mock;
   let update: jest.Mock;
+  let recordAudit: jest.Mock;
   let config: Record<string, unknown>;
 
   const buildUser = async (overrides: Record<string, unknown> = {}) => ({
@@ -20,6 +22,7 @@ describe('AuthService', () => {
     role: UserRole.OWNER,
     businessId: 'business-1',
     isActive: true,
+    permissions: [],
     business: { id: 'business-1', name: 'Duka la Mfano', isActive: true },
     ...overrides,
   });
@@ -27,6 +30,7 @@ describe('AuthService', () => {
   beforeEach(async () => {
     findUnique = jest.fn();
     update = jest.fn().mockResolvedValue({});
+    recordAudit = jest.fn().mockResolvedValue(undefined);
     config = {
       'app.nodeEnv': 'test',
       'app.jwtExpiresIn': '8h',
@@ -38,8 +42,14 @@ describe('AuthService', () => {
         AuthService,
         {
           provide: PrismaService,
-          useValue: { user: { findUnique, update, findMany: jest.fn().mockResolvedValue([]) } },
+          useValue: {
+            user: { findUnique, update, findMany: jest.fn().mockResolvedValue([]) },
+            branch: { findMany: jest.fn().mockResolvedValue([]) },
+            branchAssignment: { findMany: jest.fn().mockResolvedValue([]) },
+            device: { findUnique: jest.fn(), update: jest.fn() },
+          },
         },
+        { provide: AuditService, useValue: { record: recordAudit } },
         { provide: JwtService, useValue: { signAsync: jest.fn().mockResolvedValue('token-123') } },
         {
           provide: ConfigService,

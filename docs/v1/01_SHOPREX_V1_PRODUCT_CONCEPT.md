@@ -34,15 +34,33 @@ The mobile app is the operational tool. The web app is the management and visibi
 
 ## 4. Device enrollment
 
-The device flow is designed to remove setup friction.
+The device flow is designed to remove setup friction. One phone belongs to one
+worker — that is the decision everything else here follows from.
 
-1. An authorized web user creates a device record, gives it a recognizable name, selects the business and branch, and sets the device access password or PIN.
-2. Shoprex generates a unique device identifier and a one-time enrollment token represented as a QR code and a short code/link.
-3. The person holding the Android phone opens Shoprex, scans the QR code or enters the code/link, and the app binds that installation to the business, branch, and device record.
-4. The app confirms the device password/PIN and opens the shop workspace.
-5. On later use, the person only enters the device password/PIN. Worker-specific PINs may be used when individual activity attribution is required.
+1. The owner creates the worker: a name, a password, and the branch they work in. Shoprex mints the worker's internal id at that moment, for database identity and audit attribution — never as a sign-in secret.
+2. The owner issues a **one-time enrollment code** for that worker and hands it over. The branch comes from the worker's own assignment, so a code cannot bind a phone to a branch the worker does not work in.
+3. The worker opens Shoprex on the Android phone and enters the code. The backend mints the `device_id`, binds that installation to the business, branch, and worker, and the app stores the id.
+4. From then on the worker signs in on that phone with their own password. No code, and no email — they never had one.
 
-The exact split between platform-admin-created devices and owner-created devices is recorded as an open decision until confirmed. The secure default is to permit device creation to platform administrators and shop owners, limited to businesses and branches they are authorized to manage.
+**Only owners issue enrollments.** Not platform administrators. Confirmed
+2026-08-22.
+
+**One device, one worker.** Because a device identifies exactly one person, the
+device *is* the attribution, and V1 therefore needs no per-worker PIN. The
+device carries the worker's own name so the owner can see at a glance whose
+phone it is.
+
+**A second phone is refused until the first is revoked.** Redeeming a code for a
+worker who already holds an active device fails, naming the device they already
+have, and Shoprex never silently moves the worker to the new handset. The
+refusal does **not** consume the code, so a worker standing in the shop is not
+stranded waiting for the owner to issue another one. Once the owner revokes the
+old phone, the same code works.
+
+That makes revocation part of the daily flow for a lost or stolen phone rather
+than an administrative afterthought. A revoked device is refused by the backend
+on its very next request — not merely hidden in the app — so it cannot record a
+sale or a stock movement whatever the phone believes.
 
 ## 5. The selling experience
 

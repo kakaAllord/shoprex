@@ -109,6 +109,17 @@ export class EnvironmentVariables {
   @Min(1000)
   @IsOptional()
   RATE_LIMIT_TTL_MS: number = 60000;
+
+  /**
+   * How long a device enrollment code stays valid. Short on purpose: the code
+   * is a secret handed over on paper, and an unused one should stop working
+   * the same day it was written down.
+   */
+  @IsInt()
+  @Min(5)
+  @Max(1440)
+  @IsOptional()
+  DEVICE_ENROLLMENT_TTL_MINUTES: number = 60;
 }
 
 export function validateEnvironment(

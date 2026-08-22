@@ -1,7 +1,8 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../database/prisma.service';
+import { requireBusiness } from '../../common/tenancy';
 import { CreateBranchDto } from './dto/create-branch.dto';
 
 export interface BranchView {
@@ -17,7 +18,7 @@ export class BranchesService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(principal: AuthenticatedUser, dto: CreateBranchDto): Promise<BranchView> {
-    const businessId = this.requireBusiness(principal);
+    const businessId = requireBusiness(principal);
     const name = dto.name.trim();
 
     const existing = await this.prisma.branch.findFirst({ where: { businessId, name } });
@@ -34,7 +35,7 @@ export class BranchesService {
    * only the branches they are assigned to.
    */
   async listForPrincipal(principal: AuthenticatedUser): Promise<BranchView[]> {
-    const businessId = this.requireBusiness(principal);
+    const businessId = requireBusiness(principal);
 
     if (principal.role === UserRole.OWNER) {
       return this.prisma.branch.findMany({
@@ -54,7 +55,7 @@ export class BranchesService {
    * branch id exists in someone else's business.
    */
   async findOne(principal: AuthenticatedUser, branchId: string): Promise<BranchView> {
-    const businessId = this.requireBusiness(principal);
+    const businessId = requireBusiness(principal);
     const branch = await this.prisma.branch.findFirst({ where: { id: branchId, businessId } });
 
     if (!branch) {
@@ -72,15 +73,5 @@ export class BranchesService {
     }
 
     return branch;
-  }
-
-  private requireBusiness(principal: AuthenticatedUser): string {
-    if (!principal.businessId) {
-      throw new ForbiddenException(
-        'Platform administrators act on a business through the platform endpoints, not this one',
-      );
-    }
-
-    return principal.businessId;
   }
 }

@@ -116,10 +116,20 @@ from `POST /auth/login` to exercise the protected routes; the token survives a
 page reload.
 
 The document is covered by `test/openapi.e2e-spec.ts`, which fails if a route is
-added without a summary, if a protected route forgets its bearer requirement, or
-if any request body starts accepting a `businessId` or `branchId`.
+added without a summary, if a protected route forgets its bearer requirement, if
+any request body starts accepting a `businessId`, or if a response starts
+carrying a secret.
 
-### API surface (Phase 1)
+A **branch** id is a narrower rule than a tenant id, and deliberately so. The
+tenant is never negotiable — it comes from the token and no body may carry it.
+But a business has several branches and only the owner knows which one a new
+worker stands in, so worker and manager creation must be able to name one. Those
+two DTOs are pinned in an allowlist in that test, and each is backed by a test
+proving a branch from another tenant answers `404` rather than becoming an
+assignment. Adding a DTO to that list without such a test is exactly what the
+pinning exists to make visible.
+
+### API surface (Phases 1–2)
 
 | Endpoint | Auth | Purpose |
 |---|---|---|
@@ -128,7 +138,8 @@ if any request body starts accepting a `businessId` or `branchId`.
 | `GET /api/v1/health/ready` | public | Liveness plus a PostgreSQL round trip; `503` when the database is down |
 | `POST /api/v1/auth/signup` | public | Owner self-registration: creates the shop and the owner, returns a session |
 | `POST /api/v1/auth/login` | public | Email and password sign-in |
-| `GET /api/v1/auth/me` | bearer | The signed-in profile |
+| `POST /api/v1/auth/device/login` | public | Worker sign-in on an enrolled phone: `device_id` plus the worker's password |
+| `GET /api/v1/auth/me` | bearer | The signed-in profile, including permissions and the bound device |
 | `GET /api/v1/auth/dev-credentials` | public | Seeded logins for the prefilled form; empty unless development autofill is on |
 | `POST /api/v1/businesses` | platform admin | Onboard a shop and its owner |
 | `GET /api/v1/businesses` | platform admin | Every shop on the platform |
@@ -136,6 +147,17 @@ if any request body starts accepting a `businessId` or `branchId`.
 | `POST /api/v1/branches` | owner | Add a branch to the caller's own business |
 | `GET /api/v1/branches` | owner/manager/worker | Owners see all branches; others see only assigned ones |
 | `GET /api/v1/branches/:id` | owner/manager/worker | Another tenant's branch answers `404`, never `403` |
+| `POST /api/v1/users/managers` | owner | Create a delegated manager with credentials and branch scope |
+| `POST /api/v1/users/workers` | owner | Create a worker from a name, a password, one branch — no email |
+| `GET /api/v1/users` | owner/manager | Owners see all staff; managers see only their branches' staff |
+| `GET /api/v1/users/:id` | owner/manager | Another tenant's staff member answers `404`, never `403` |
+| `PATCH /api/v1/users/:id/permissions` | owner | Replace a person's permission set outright |
+| `POST /api/v1/devices/enrollments` | owner | Issue a one-time enrollment code for a worker; returned **once** |
+| `POST /api/v1/devices/enroll` | public | A phone redeems its code; the backend mints `device_id` and binds the install |
+| `GET /api/v1/devices` | owner/manager | Owners see all devices; managers see only their branches' |
+| `GET /api/v1/devices/:id` | owner/manager | Another tenant's device answers `404`, never `403` |
+| `POST /api/v1/devices/:id/revoke` | owner | Refuses that phone at the backend on its very next request |
+| `GET /api/v1/audit-events` | owner | Who did what, from which device, and when |
 
 Every error uses one envelope, shared by both clients:
 
@@ -151,9 +173,33 @@ Every error uses one envelope, shared by both clients:
 
 **Rate limiting.** Two buckets, both per client address and configurable in
 `.env`: `RATE_LIMIT_DEFAULT` (120/min) for the API at large, and
-`RATE_LIMIT_AUTH` (10/min) for `POST /auth/login` and `POST /auth/signup`.
-Exceeding a bucket returns `429`. Every other controller opts out of the strict
-bucket with `@SkipThrottle({ auth: true })`.
+`RATE_LIMIT_AUTH` (10/min) for the four routes that accept a secret from an
+unauthenticated caller — `POST /auth/login`, `POST /auth/signup`,
+`POST /auth/device/login`, and `POST /devices/enroll`. Exceeding a bucket
+returns `429`. Every other controller opts out of the strict bucket with
+`@SkipThrottle({ auth: true })`.
+
+An e2e suite that drives many sign-ins or enrollments must raise
+`RATE_LIMIT_AUTH` **before** importing `AppModule`, since the limits are read
+when the module is built — see `rate-limit.e2e-spec.ts` for the pattern.
+
+**Workers and devices.** A worker is created with a name, a password, and one
+branch — deliberately no email, because workers never use the web console. The
+owner issues a **one-time enrollment code**, the worker types it into the
+Android app once, and the backend mints the `device_id` and binds that install
+to one business, one branch, and one worker. Afterwards the worker signs in
+with `POST /auth/device/login` using the stored `device_id` and their password.
+
+One device belongs to exactly one worker, so the device *is* the attribution
+and V1 needs no per-worker PIN. A worker who already holds an **active** device
+cannot enroll a second one until the owner revokes the first — and a refusal
+does **not** consume the code, so nobody is stranded mid-shift. Revocation
+takes effect at the backend on the phone's very next request; an existing,
+still-unexpired token stops working immediately.
+
+The code is a secret: it is returned once at issue, stored only as a SHA-256
+hash, never echoed back, and kept out of the audit log. Both public device
+routes sit in the strict auth rate-limit bucket.
 
 **Phone numbers.** Owners register with a Tanzanian mobile number in any
 spelling — `0712345678`, `+255712345678`, `255 712 345 678` — and it is stored
@@ -274,6 +320,10 @@ Phase 2 and the selling flow is Phase 4.
 
 All variable names are documented in [.env.example](.env.example). Real values
 belong in `backend/.env`, `web/.env.local`, and `mobile/.env`, all git-ignored.
+
+Phase 2 added one: `DEVICE_ENROLLMENT_TTL_MINUTES` (default 60, range 5–1440)
+sets how long a one-time device enrollment code stays valid. Short on purpose —
+the code is a secret handed to a worker on paper.
 No address, port, or connection string is hardcoded in application code: each
 app reads its configuration from its own `.env` and fails at startup if a
 required value is missing.

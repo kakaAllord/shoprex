@@ -16,6 +16,7 @@ export interface AppConfig {
   rateLimitDefault: number;
   rateLimitAuth: number;
   rateLimitTtlMs: number;
+  enrollmentTtlMinutes: number;
 }
 
 /**
@@ -45,6 +46,7 @@ export function appConfiguration(): { app: AppConfig } {
       rateLimitDefault: Number(env.RATE_LIMIT_DEFAULT ?? 120),
       rateLimitAuth: Number(env.RATE_LIMIT_AUTH ?? 10),
       rateLimitTtlMs: Number(env.RATE_LIMIT_TTL_MS ?? 60000),
+      enrollmentTtlMinutes: Number(env.DEVICE_ENROLLMENT_TTL_MINUTES ?? 60),
     },
   };
 }

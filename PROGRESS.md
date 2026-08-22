@@ -12,7 +12,7 @@ If Part A and Part B ever disagree (e.g. the table says "Complete" but a section
 |---|---|---|---|---|
 | 0 | Decisions and design lock | Complete | Yes | 2026-08-20 |
 | 1 | Repository and backend foundation | Complete | Yes — re-verified 2026-08-22, see §1 and §1c | 2026-08-22 |
-| 2 | Owner, manager, worker, and device access | Not started | — | — |
+| 2 | Owner, manager, worker, and device access | Complete | Yes — every criterion driven end to end over HTTP, see §2 | 2026-08-22 |
 | 3 | Product, barcode, pricing, and stock engine | Not started | — | — |
 | 4 | React Native mobile selling flow | Not started | — | — |
 | 5 | React Native stock receiving and operational visibility | Not started | — | — |
@@ -22,7 +22,9 @@ If Part A and Part B ever disagree (e.g. the table says "Complete" but a section
 
 **Status values:** `Not started` / `In progress` / `Blocked` / `Complete`. Only mark `Complete` when the acceptance-check column says `Yes`, backed by a real test run referenced in that phase's section below.
 
-**Active phase:** Phase 2, not yet started. Mobile stack changed to React Native after Phase 1 closed — see §1a. Phase 1 was independently re-verified on 2026-08-22 and two gaps were closed before any Phase 2 code — see §1c. **Exact next action:** begin Phase 2 backend deliverables per the kickoff note in §2 (the `Device` and `DeviceEnrollmentToken` models and worker creation), and mark the Phase 2 row `In progress` when that work starts.
+**Active phase:** Phase 3, not yet started. Phase 2 closed on 2026-08-22 with 270 automated tests passing across all three surfaces — see §2. Mobile stack changed to React Native after Phase 1 closed (§1a); Phase 1 was independently re-verified before any Phase 2 code (§1c).
+
+**Exact next action:** answer the barcode-format question in §2's blocked list — it is the one thing Phase 3 cannot start without — then begin Phase 3's product, unit, and package-relationship models per `docs/v1/03_SHOPREX_V1_IMPLEMENTATION_PHASES.md`, and mark the Phase 3 row `In progress` when that work starts.
 
 ---
 
@@ -273,7 +275,7 @@ These tests were **mutation-checked**, not merely observed passing: disabling th
 
 ### §2 — Owner, manager, worker, and device access
 
-**Status:** Not started. *(Populate the build record only after real work begins — the decisions below are confirmed inputs, not projected content.)*
+**Status:** Complete. **Verified:** Yes — every acceptance criterion is driven end to end over real HTTP against real PostgreSQL, and the isolation guards were mutation-checked. **Date:** 2026-08-22.
 
 **Decisions confirmed by the owner on 2026-08-22 — do not re-ask:**
 
@@ -325,6 +327,108 @@ Three things carried in from the §1c audit:
 3. **`test/branch-assignment.e2e-spec.ts` seeds managers and workers through Prisma** because the endpoints to create them do not exist yet. Once Phase 2 ships those endpoints, switch that spec over to them and keep the assertions as they are.
 
 Two rules that will matter immediately here: a revoked device must be refused at the **backend**, not merely hidden in the app; and an enrollment token is a secret — issue it once, never echo it back in a later response, and keep it out of the OpenAPI examples.
+
+#### Acceptance check evidence
+
+Phase 2's acceptance check reads: *via API-level tests, an owner can create a branch, create a manager, create a device, enroll a test device through a one-time token, revoke that device, and see the actor/device associated with a test action. A revoked device is refused immediately, and an enrollment token cannot be reused or used after expiry.*
+
+| Acceptance criterion | Where it is proven |
+|---|---|
+| Owner creates a branch | `test/branch-assignment.e2e-spec.ts` — now via `POST /branches`, not seeded |
+| Owner creates a manager | `test/users.e2e-spec.ts` — "creates one with credentials and branch scope", and the manager then signs in |
+| Owner creates a device | `test/device-enrollment.e2e-spec.ts` — "binds the installation to one business, branch, and worker" |
+| Enroll through a one-time token | same suite — "the owner issues a one-time code" and "a phone redeems the code" |
+| Revoke that device | same suite — "and then the owner revokes it" |
+| See the actor/device on a test action | same suite — "attributes the device sign-in to both the worker and their phone" |
+| **Revoked device refused immediately** | same suite — "refuses the device on its very next request, with the token unchanged". The token is still valid and unexpired; that is the point |
+| **Token cannot be reused** | same suite — "refuses the same code a second time" |
+| **Token cannot be used after expiry** | same suite — "refuses one whose expiry has passed", moving the *stored* expiry rather than a client clock |
+
+Verified through the API only. **No owner-facing screens were built** — `web/` is untouched by this phase, exactly as the phase spec requires, and Phase 6 still owns those screens.
+
+#### What was built
+
+**People.** `POST /users/managers` creates a delegated manager with email-and-password credentials and a set of branches. `POST /users/workers` creates a worker from a name, a password, one branch, and a permission set — and no email at all. `GET /users` and `GET /users/{id}` read staff, scoped by assignment for a manager. `PATCH /users/{id}/permissions` replaces a permission set outright rather than merging, so a permission left out is a permission taken away.
+
+**Devices.** `POST /devices/enrollments` issues a one-time code (owners only). `POST /devices/enroll` is public — the phone has no credentials yet — and mints the `device_id` server-side. `GET /devices`, `GET /devices/{id}`, and `POST /devices/{id}/revoke` manage them. `POST /auth/device/login` signs a worker in on their bound phone.
+
+**Audit.** `AuditEvent` records actor, actor role, device, target, and a server-clock timestamp for all eight Phase 2 actions. `GET /audit-events` is the owner's view, narrowable to one device.
+
+#### Decisions made during the build
+
+| Question | Decision | Why |
+|---|---|---|
+| How does a worker sign in with no email? | `users.email` became **nullable-unique**; a worker signs in with `POST /auth/device/login` using `deviceId` + their password | The owner's §2 decision says a worker is created from a name and a password. Synthesising a fake address would have put invented data in a real column, and it would have surfaced in every future staff list |
+| Phase 1's OpenAPI test banned `branchId` in **any** request body | Narrowed: `businessId` stays banned absolutely; a branch id is allowed only for `CreateWorkerDto` and `CreateManagerDto`, pinned by an allowlist in that test, each backed by a test proving a foreign branch answers 404 | A business has several branches and only the owner knows which one a worker stands in, so something has to name it. Naming the field `branchIds` to slip past the regex would have left the test saying one thing and meaning another. **Approved by the owner before implementation** |
+| Where does the device password live? | Nowhere separate — the device references the worker's own `passwordHash` | Doc 02 §3 allows "a password/PIN hash **or equivalent credential reference**". One device belongs to one worker, so a second copy of the same password would only be something to drift |
+| How is an enrollment code stored? | SHA-256 hash, not bcrypt | Redemption must *find* the row by the value presented, which needs a deterministic digest. The input is a 12-character random code (~59 bits from a 30-symbol alphabet), not a human-chosen password |
+| Should the code be QR-only? | Typed code first; the alphabet excludes `0/O`, `1/I/L`, and `U` | It is read aloud and written on paper in a shop. `normalizeEnrollmentCode` also forgives lower case, missing dashes, and stray spaces. QR is a Phase 4 scanner concern, not a backend one |
+| Is there a `PermissionsGuard`? | **No — deliberately not yet.** Permissions are stored, set, changed, audited, and returned on the profile, but nothing enforces them because no Phase 2 route is permission-gated | A guard with no consumer is scaffolding for a later phase. **Phase 4/5 must add it at the first permission-gated route** — see the handoff note below |
+| Revoking an already-revoked device | `409`, not a silent success | The owner should know the phone was already dead rather than believing they just killed it |
+
+#### Files changed
+
+**New** — `src/domain/enrollment-token.ts` (+ spec), `src/common/tenancy.ts`, `src/common/guards/device-session.guard.ts`, `src/modules/users/` (service, controller, module, 4 DTOs), `src/modules/devices/` (service, controller, module, 3 DTOs), `src/modules/audit/` (service, controller, module, 2 DTOs), `prisma/migrations/20260822190000_people_and_devices/`, and four e2e suites (`users`, `devices`, `device-enrollment`, plus additions to `rate-limit`).
+
+**Changed** — `prisma/schema.prisma` (`Device`, `DeviceEnrollmentToken`, `AuditEvent`, `UserPermission`, `DeviceStatus`, `AuditAction`; `users.email` nullable; `permissions` on `User`), `app.module.ts`, `auth.service.ts` / `auth.controller.ts` / `auth-response.dto.ts` / `auth.service.spec.ts`, `current-user.decorator.ts`, `jwt-auth.guard.ts`, `branches.service.ts` (deduped onto the shared `requireBusiness`), `config/configuration.ts`, `config/env.validation.ts`, `docs/swagger.ts`, `test/openapi.e2e-spec.ts`, `test/branch-assignment.e2e-spec.ts`, `.env.example` (both), `README.md`, `docs/v1/01` §4, `docs/v1/02` §§2/3/9.
+
+#### Commands run and results
+
+| Command | Where | Result |
+|---|---|---|
+| `npx prisma migrate deploy` | backend | Passed — 4 migrations |
+| `npm run lint` / `typecheck` / `build` | backend | Passed, clean |
+| `npm test` | backend | Passed — **48/48** unit (was 29; +19 enrollment-code domain tests) |
+| `npm run test:e2e` | backend | Passed — **190/190** e2e (was 82) |
+| `npm run typecheck` / `test` / `build` | web | Passed — 20/20, build clean |
+| `npm run typecheck` / `test` | mobile | Passed — 12/12 |
+
+**Total: 270 automated tests, all passing** (backend 48 + 190, web 20, mobile 12). Up from 143.
+
+#### Mutation-checked, not merely observed passing
+
+A test that cannot fail proves nothing. Each guard below was broken, the suites re-run, and the guard restored — the working tree is clean of all five.
+
+| Guard broken | Result |
+|---|---|
+| `DeviceSessionGuard`'s ACTIVE check | 1 test failed — "refuses the device on its very next request" |
+| The already-holds-a-device refusal | 54 tests failed |
+| The `usedAt` single-use check | 1 test failed — "refuses the same code a second time" |
+| The branch-belongs-to-tenant check in `UsersService` | 3 tests failed |
+| The tenant filter in `DevicesService.requireDevice` | 3 tests failed |
+
+#### Isolation shipped with the resource, as AGENT.md requires
+
+`test/devices.e2e-spec.ts` covers `Device`, `DeviceEnrollmentToken`, and `AuditEvent` — cross-tenant reads answering 404 not 403, branch scoping inside one tenant, a manager refused revocation and enrollment, a platform administrator refused all three because it belongs to no business, and the audit log refusing a manager and a worker. Phase 8 should confirm this, not discover it.
+
+#### Known issues / risks
+
+1. **`test/e2e-env.js` does not actually raise the rate limits it says it does.** It sets `RATE_LIMIT_AUTH = process.env.RATE_LIMIT_AUTH ?? '10000'`, but `dotenv` has already loaded `backend/.env` two lines above, where the value is `10`. So the `??` never fires and the comment "generous limits so functional suites are not throttled" is false. Phase 1's suites stayed under 10 auth calls by luck. Phase 2's suites raise the limits themselves before importing `AppModule`, following `rate-limit.e2e-spec.ts`'s established pattern — **left as found rather than changing shared setup that four existing suites depend on.** Worth fixing deliberately.
+2. `prisma migrate diff --from-migrations` needs a shadow database. `shoprex_shadow` was created on the dev machine for this migration and left in place; it is empty and regenerable.
+3. Issues 2–8 from §1 all still stand unchanged (npm allow-scripts, no `web/` ESLint config, non-interactive `prisma migrate dev`, minimal password policy, in-memory rate limiting, no refresh tokens, Docker daemon). The worker password inherits the same 8-character minimum with no complexity check, which matters more now that a password is set *for* someone by their employer.
+4. `DeviceSessionGuard` costs one database lookup per device-authenticated request. Correct, and required by "refused immediately", but it is on the hot path for every sale Phase 4 will add.
+5. The root `.env.example` still lists `JWT_SECRET` under "Not yet used in the foundation phase", which is wrong — it has been required since Phase 1 and the API refuses to boot without it. **Not touched:** it is Phase 1's staleness, not this change's, and correcting it was not part of this task. Flagging it because someone copying that file will hit it.
+
+#### Blocked / awaiting user
+
+Nothing blocks Phase 2 — it is complete. Carried forward:
+
+| # | Question | Why it needs the owner | When it starts blocking |
+|---|---|---|---|
+| 1 | **First barcode formats** (EAN-13, UPC-A, Code 128, …) | Determines what the scanner accepts and what a "valid" barcode means at product creation | **Phase 3 — now.** This is the next thing that stops work |
+| 2 | **Pilot shop workflow** | Decides who the first real onboarding is for | Phase 8 |
+| 3 | Confirm only regenerable build output may be cleared during disk cleanup | Nothing of the owner's was touched, but the confirmation was never given | Whenever disk tightens again |
+
+#### Handoff notes
+
+- **Phase 4/5 must add a `PermissionsGuard`.** The permission set exists, is settable, and is returned on `/auth/me`, but nothing enforces it yet because no Phase 2 route is permission-gated. The first route that should check `SELL` or `RECEIVE_STOCK` is where that guard belongs. Do not let a client treat `permissions` as a rendering hint.
+- **`actorFrom(principal)` in `users.service.ts` is the one way to build audit attribution.** Phase 4's sale must call `AuditService.record()` with it, so the device id flows from the token into the sale's audit row automatically.
+- **`AuditService.record()` takes an optional transaction client.** Use it: an audit line for a device that was never created is worse than no line.
+- The JWT now carries an optional `deviceId`. Anything that must be attributable to a phone reads it from the token, never from a request body.
+- `requireBusiness()` in `src/common/tenancy.ts` is the single place that turns a principal into a tenant. New resources should use it rather than reaching for `principal.businessId`.
+- Response DTOs still `implement` their service interfaces (`StaffMemberViewDto implements StaffMemberView`, and so on). Keep that — it is what stops the published contract drifting from the code.
+- `test/branch-assignment.e2e-spec.ts` no longer seeds through Prisma. Every principal in it is now built through the real endpoints, and its Phase 1 assertions are unchanged — which is the point: the real creation path produces the same isolation the seeded one did.
+- An enrollment code appears in exactly one response, `IssuedEnrollmentViewDto`. `test/openapi.e2e-spec.ts` walks every response schema and fails if a second one starts carrying a `code`, `token`, or `password`.
 
 ### §3 — Product, barcode, pricing, and stock engine
 *(empty until started)*

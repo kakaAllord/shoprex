@@ -21,9 +21,16 @@ API does not accept a client-supplied time for anything a report depends on.
 
 **Errors.** Every failure uses one envelope — see the \`ErrorResponseDto\` schema.
 
+**Devices.** One device belongs to exactly one worker, and Shoprex mints its
+\`device_id\` server-side at enrollment — Android exposes no reliable permanent
+hardware identifier, so a client never supplies one. Enrollment codes are
+single-use and short-lived, returned once at issue and never echoed back. A
+revoked device is refused by the backend on its very next request.
+
 **Rate limits.** Two buckets, both per client address: a default bucket over the
-API at large, and a strict bucket on \`POST /auth/login\` and \`POST /auth/signup\`.
-Exceeding either answers \`429\`.
+API at large, and a strict bucket on \`POST /auth/login\`, \`POST /auth/signup\`,
+\`POST /auth/device/login\`, and \`POST /devices/enroll\`. Exceeding either
+answers \`429\`.
 
 V1 is online-only: there is no offline queue, outbox, or sync endpoint.`;
 
@@ -49,6 +56,12 @@ export function buildOpenApiDocument(
     .addTag('auth', 'Owner self-registration, sign-in, and the signed-in profile.')
     .addTag('businesses', 'The tenant. Platform-admin onboarding and own-business reads.')
     .addTag('branches', 'Branches within the caller’s own business.')
+    .addTag('users', 'Delegated managers and workers, and what each may do.')
+    .addTag(
+      'devices',
+      'One Android installation per worker: enrollment, listing, and revocation.',
+    )
+    .addTag('audit', 'Who did what, from which device, and when.')
     .build();
 
   return SwaggerModule.createDocument(app, config, {
