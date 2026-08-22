@@ -10,7 +10,8 @@ import type { Request, Response } from 'express';
 
 /**
  * The one error shape every Shoprex client can rely on. Both the Next.js web app
- * and the Flutter app parse this envelope, so it must stay stable.
+ * and the React Native app parse this envelope, so it must stay stable.
+ * Documented for OpenAPI by ErrorResponseDto, which implements this interface.
  */
 export interface ShoprexErrorResponse {
   statusCode: number;

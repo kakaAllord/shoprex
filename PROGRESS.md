@@ -11,7 +11,7 @@ If Part A and Part B ever disagree (e.g. the table says "Complete" but a section
 | # | Phase | Status | Acceptance check verified? | Last updated |
 |---|---|---|---|---|
 | 0 | Decisions and design lock | Complete | Yes | 2026-08-20 |
-| 1 | Repository and backend foundation | Complete | Yes — see §1 | 2026-08-22 |
+| 1 | Repository and backend foundation | Complete | Yes — re-verified 2026-08-22, see §1 and §1c | 2026-08-22 |
 | 2 | Owner, manager, worker, and device access | Not started | — | — |
 | 3 | Product, barcode, pricing, and stock engine | Not started | — | — |
 | 4 | React Native mobile selling flow | Not started | — | — |
@@ -22,7 +22,7 @@ If Part A and Part B ever disagree (e.g. the table says "Complete" but a section
 
 **Status values:** `Not started` / `In progress` / `Blocked` / `Complete`. Only mark `Complete` when the acceptance-check column says `Yes`, backed by a real test run referenced in that phase's section below.
 
-**Active phase:** Phase 2. Mobile stack changed to React Native after Phase 1 closed — see §1a. **Exact next action:** see §2 → "Next action" once Phase 2 work begins; until then, see the Phase 2 kickoff note in §2.
+**Active phase:** Phase 2, not yet started. Mobile stack changed to React Native after Phase 1 closed — see §1a. Phase 1 was independently re-verified on 2026-08-22 and two gaps were closed before any Phase 2 code — see §1c. **Exact next action:** begin Phase 2 backend deliverables per the kickoff note in §2 (the `Device` and `DeviceEnrollmentToken` models and worker creation), and mark the Phase 2 row `In progress` when that work starts.
 
 ---
 
@@ -46,7 +46,7 @@ If Part A and Part B ever disagree (e.g. the table says "Complete" but a section
 | Owner self-registration | `test/signup.e2e-spec.ts` — 14 tests |
 | Sign-in brute force throttled | `test/rate-limit.e2e-spec.ts` — 429 after configured limit |
 
-**Gap flagged for follow-up (not blocking Phase 2):** OpenAPI/Swagger documentation was **not** produced in this phase, though the revised phase spec now requires it. Add it as a small Phase-2-kickoff task, since Phase 6's web client and any future integrator will otherwise read controller source directly.
+**Gap flagged for follow-up (not blocking Phase 2):** OpenAPI/Swagger documentation was **not** produced in this phase, though the revised phase spec now requires it. Add it as a small Phase-2-kickoff task, since Phase 6's web client and any future integrator will otherwise read controller source directly. → **Closed 2026-08-22 in §1c.** The contract is now browsable at `/docs`. Note that this gap meant Phase 1's acceptance check was only *partly* verified when this section was first written: "the API contract is browsable (e.g. at `/docs`)" is part of that check, not an extra. The table row is now honest.
 
 **What was built:** NestJS 11 + Prisma 6 + PostgreSQL 17. Typed config that refuses to boot on a bad environment; global validation with `forbidNonWhitelisted`; shared error envelope; `LOG_LEVEL`-driven logging; liveness/readiness health checks. JWT auth; `JwtAuthGuard` and `RolesGuard` global; rate limiting global with a strict bucket on auth routes. `Business` is the tenant; `Branch` belongs to a business; `User` carries a role and optional `businessId` (null only for platform admins); `BranchAssignment` records manager/worker branch access. `businessId` always comes from the verified token, is absent from every DTO, and cross-tenant reads return 404 not 403.
 
@@ -204,7 +204,72 @@ Behaviour preserved exactly: a 503 from `/health/ready` is still treated as *rea
 
 **Blocked / awaiting user:** `npx eas login` is interactive and tied to the owner's Expo account, so the first build must be started by the owner. Steps are in `mobile/README.md`.
 
+**Update 2026-08-22 (found during the §1c audit, not reported before):** the owner has since run `eas init`. `mobile/app.json` now carries `extra.eas.projectId` and `owner: "kakaallord"` as an uncommitted working-tree change, and `mobile/.expo/devices.json` exists. **The project is linked to EAS; that much of the blocker is cleared.** Whether a cloud build has actually completed and been installed on a phone is *not* verifiable from this machine — no build artifact or log is in the repository — so the native build remains unconfirmed here, exactly as §1a left it. The `app.json` change should be committed, since a missing `projectId` makes `eas build` interactive again for the next person.
+
 **Supersedes:** the JDK blocker in §1a. Installing a JDK is now optional — it is only needed for `npm run android`, the local build path that EAS replaces.
+
+### §1c — Phase 1 audit before Phase 2 (2026-08-22)
+
+**Status:** Complete. **Verified:** Yes — every claim below is backed by a command run in this session, not by reading §1.
+
+**Why this section exists:** Phase 1 was re-verified from scratch rather than trusted, per `AGENT.md`'s continuity rule. Nothing had regressed. Two real gaps were found and closed before any Phase 2 code was written.
+
+#### Re-verification: no regression
+
+Every suite was re-run from a clean checkout state before anything was changed. All 98 previously claimed tests still pass, plus the builds and typechecks. **Phase 1's acceptance check holds against real tests.**
+
+#### Gap 1 — OpenAPI/Swagger was missing. **Fixed.**
+
+This was not merely a nice-to-have carried over from §1: *"the API contract is browsable (e.g. at `/docs`)"* is written into Phase 1's own acceptance check in `docs/v1/03_SHOPREX_V1_IMPLEMENTATION_PHASES.md`. Phase 1 had therefore been marked `Complete` with one criterion unverified. It is now genuinely met.
+
+- `@nestjs/swagger` added; `src/docs/swagger.ts` builds the document and mounts Swagger UI at **`/docs`**, the raw document at `/docs-json` and `/docs-yaml`.
+- Mounted **outside** the API prefix on purpose, so the address does not move if `API_PREFIX` changes. A test pins this.
+- Every controller, route, request DTO, and response shape is annotated: summaries, descriptions, response types, error responses, and the JWT bearer scheme.
+- **Response schemas `implement` the service interfaces they document.** `LoginResultDto implements LoginResult`, `ErrorResponseDto implements ShoprexErrorResponse`, and so on. This is the anti-drift mechanism: adding a field to a service interface fails the typecheck until the published schema is updated too. Preserve this when adding Phase 2 resources.
+- The tenancy and timestamp rules are stated in the document's own description, so an integrator reads them without opening `AGENT.md`.
+
+#### Gap 2 — `BranchAssignment` had no isolation test. **Fixed.**
+
+`BranchesService.listForPrincipal` and `findOne` both contain a manager/worker branch that **no test reached**, because every existing e2e test authenticated as an owner or a platform admin. A whole authorization path — the one that decides whether a worker can read a branch they are not assigned to — was unverified.
+
+`test/branch-assignment.e2e-spec.ts` now covers it with 13 tests: assignment-scoped listing, an assigned read succeeding, an **unassigned branch inside the caller's own business answering `404`** (not 403, and not 200), cross-tenant reads answering `404`, an assignment in one tenant not widening access into another, and managers/workers being refused branch creation.
+
+Managers and workers are seeded directly through Prisma, since the endpoints that create them are Phase 2's deliverable. **Phase 2 should replace the seeding with the real creation endpoints and keep the assertions.**
+
+These tests were **mutation-checked**, not merely observed passing: disabling the assignment guard in `findOne` was confirmed to fail 2 tests, and the guard was then restored (`git diff` on the service is empty). A test that cannot fail proves nothing.
+
+#### Gaps checked and found already clear
+
+| Checked | Finding |
+|---|---|
+| `AGENT.md` / `README.md` / `PROGRESS.md` format | Already correct. `PROGRESS.md` is already master-table-plus-sections; no restructuring was needed and no history was touched |
+| Throwaway owner-facing web screens ahead of Phase 6 | **None.** `web/` holds only Phase 1's signup/login/admin/owner shell. No worker, manager, or device screen exists. Phase 2 must stay API-only |
+| Server-clock timestamps | **Correct by construction.** Every timestamp column is `@default(now())` / `@updatedAt` — the database clock. No DTO accepts a date, and `forbidNonWhitelisted` rejects any unexpected field, so a device cannot smuggle one in. A test now asserts no request body accepts a `businessId` or `branchId` either |
+| Disk space (the recurring risk from §1) | **Has not recurred.** 26.09 GB free, against ~1.5 GB at the worst point and ~12 GB when §1b was written. Deleting `C:\Android\sdk` (11.9 GB) remains available if it tightens again |
+
+#### Commands run and results
+
+| Command | Where | Result |
+|---|---|---|
+| `npm test` | backend | Passed — 29/29 unit |
+| `npm run test:e2e` | backend | Passed — **82/82** e2e (was 37; +32 OpenAPI, +13 assignment isolation) |
+| `npm run lint` / `typecheck` / `build` | backend | Passed, clean |
+| `npm test` / `typecheck` / `build` | web | Passed — 20/20, build clean |
+| `npm test` / `typecheck` | mobile | Passed — 12/12 |
+| `node dist/main.js` + `curl /docs`, `/docs-json` | backend | `200 text/html`; document lists all 13 operations with correct public/bearer split |
+
+**Total: 143 automated tests, all passing** (backend 29 + 82, web 20, mobile 12). Up from 98.
+
+**Also corrected:** two stale "Flutter" comments in backend source (`main.ts`, `all-exceptions.filter.ts`). §1a's claim that no Flutter reference remained was true of markdown only; no Flutter reference remains in backend source either now.
+
+**Known issues — status after this audit:** issues 2–7 in §1 all still stand unchanged (npm allow-scripts, no `web/` ESLint config, non-interactive `prisma migrate dev`, minimal password policy, in-memory rate limiting, no refresh tokens). Issue 1 (disk) has eased but is not structurally solved. Issue 8 (Docker daemon) is unchanged and does not matter while the local Postgres service runs.
+
+**Blocked / awaiting user:** nothing new from this audit. The two blockers carried into Phase 2 are listed in §2.
+
+**Handoff notes:**
+- `/docs` is now part of the acceptance surface. A Phase 2 route added without `@ApiOperation` will **fail** `test/openapi.e2e-spec.ts`, by design — that test enumerates the documented paths and compares them against the expected set, so adding a route means updating that list deliberately.
+- When Phase 2 adds `Device` and `DeviceEnrollmentToken`, both need their own isolation tests in the same phase, and their response schemas should `implement` their service interfaces like the Phase 1 ones do.
+- A one-time enrollment token is a secret. Keep it out of the OpenAPI *examples*, and out of any response after the single issue moment.
 
 ### §2 — Owner, manager, worker, and device access
 
@@ -229,9 +294,25 @@ Behaviour preserved exactly: a 503 from `/health/ready` is still treated as *rea
 
 **Design consequences of "one device, one worker":** the device record carries a worker reference, not just a business and branch; a second enrollment for the same worker should either move them to the new device or be refused (owner decision needed at build time); and a revoked device must not create sales or stock movements.
 
-**Still open (does not block starting):** first barcode formats, and the pilot shop workflow.
+**Blocked / awaiting user.** None of these stop Phase 2 backend work from starting, but each must be answered by the owner rather than decided by an agent. Recorded here per `AGENT.md` instead of being resolved silently.
 
-**Kickoff note:** start on the backend — `Device` and `DeviceEnrollmentToken` models, worker creation under the owner, one-time token issue/redeem with expiry, and revocation — with tenant and role checks tested exactly as Phase 1 does. The `expo-camera` barcode work belongs to Phase 3/4, not here. Also carry over the Phase 1 gap: OpenAPI/Swagger documentation was never produced and should be added as a small kickoff task.
+| # | Question | Why it needs the owner | When it starts blocking |
+|---|---|---|---|
+| 1 | **Re-enrollment:** when a worker already bound to a device is enrolled again — new phone, lost phone, factory reset — does the new device **replace** the old one automatically, or is the second enrollment **refused** until the owner revokes the first? | Both are defensible and they behave differently the first time a worker loses a phone mid-shift. "One device, one worker" forces the choice rather than settling it. Silent replacement is the convenient answer and also the one that lets a stolen phone be swapped out by whoever holds the token | At the moment enrollment redemption is implemented — this is the branch it hinges on |
+| 2 | **First barcode formats** (EAN-13, UPC-A, Code 128, …) | Determines what the scanner accepts and what a "valid" barcode means at product creation | Phase 3, not Phase 2 |
+| 3 | **Pilot shop workflow** | Decides who the first real onboarding is for | Phase 8 |
+| 4 | Carried over from §1: confirm only regenerable build output may be cleared during disk cleanup | Nothing of the owner's was touched, but the confirmation was never given | Whenever disk tightens again |
+
+Decision 1 is the only one that can stall Phase 2. **Suggested default if no answer arrives:** refuse the second enrollment and require an explicit revoke first — it is the reversible choice, it produces an audit trail, and it can be relaxed to auto-replace later without invalidating any stored device. Do not treat this paragraph as the decision; it is the recommendation to put to the owner.
+
+**Kickoff note:** start on the backend — `Device` and `DeviceEnrollmentToken` models, worker creation under the owner, one-time token issue/redeem with expiry, and revocation — with tenant and role checks tested exactly as Phase 1 does. The `expo-camera` barcode work belongs to Phase 3/4, not here.
+
+Three things carried in from the §1c audit:
+1. **The OpenAPI gap is closed** — do not repeat it. Annotate every new route as you add it; `test/openapi.e2e-spec.ts` fails on an undocumented route by design.
+2. **Isolation tests ship with the resource, not after it.** `Device` and `DeviceEnrollmentToken` each need their own tenant-isolation coverage inside Phase 2.
+3. **`test/branch-assignment.e2e-spec.ts` seeds managers and workers through Prisma** because the endpoints to create them do not exist yet. Once Phase 2 ships those endpoints, switch that spec over to them and keep the assertions as they are.
+
+Two rules that will matter immediately here: a revoked device must be refused at the **backend**, not merely hidden in the app; and an enrollment token is a secret — issue it once, never echo it back in a later response, and keep it out of the OpenAPI examples.
 
 ### §3 — Product, barcode, pricing, and stock engine
 *(empty until started)*

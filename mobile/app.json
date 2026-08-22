@@ -33,6 +33,12 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "060936bf-2d71-4100-8056-027235f433ca"
+      }
+    },
+    "owner": "kakaallord"
   }
 }

@@ -102,10 +102,28 @@ npx prisma migrate diff --from-schema-datasource prisma/schema.prisma \
 npx prisma migrate deploy
 ```
 
+### API contract — http://localhost:3001/docs
+
+The API documents itself. `GET /docs` serves a browsable Swagger UI, `GET
+/docs-json` and `GET /docs-yaml` serve the raw OpenAPI 3 document. Read that
+instead of controller source: it is generated from the same decorators the
+running API uses, so it cannot drift into describing endpoints that do not
+exist.
+
+`/docs` sits **outside** the API prefix deliberately, so the address does not
+move when `API_PREFIX` changes. Click **Authorize** and paste the `accessToken`
+from `POST /auth/login` to exercise the protected routes; the token survives a
+page reload.
+
+The document is covered by `test/openapi.e2e-spec.ts`, which fails if a route is
+added without a summary, if a protected route forgets its bearer requirement, or
+if any request body starts accepting a `businessId` or `branchId`.
+
 ### API surface (Phase 1)
 
 | Endpoint | Auth | Purpose |
 |---|---|---|
+| `GET /docs` | public | Browsable API contract (Swagger UI); raw document at `/docs-json` |
 | `GET /api/v1/health` | public | Liveness |
 | `GET /api/v1/health/ready` | public | Liveness plus a PostgreSQL round trip; `503` when the database is down |
 | `POST /api/v1/auth/signup` | public | Owner self-registration: creates the shop and the owner, returns a session |
@@ -163,6 +181,15 @@ Unit tests use mocks and need no database. The e2e suites boot the real HTTP
 surface against PostgreSQL, isolated in their own `shoprex_e2e` schema, which
 `test/global-setup.js` migrates before the run — development data is never
 touched. Point them elsewhere with `TEST_DATABASE_URL` if you prefer.
+
+| Suite | What it holds in place |
+|---|---|
+| `test/auth.e2e-spec.ts` | Sign-in, platform-admin onboarding, owner tenant isolation |
+| `test/signup.e2e-spec.ts` | Owner self-registration, including phone normalisation |
+| `test/branch-assignment.e2e-spec.ts` | Branch-level isolation for managers and workers — an unassigned branch answers `404` even inside the caller's own business |
+| `test/openapi.e2e-spec.ts` | The published contract: every route documented, every protected route marked, no tenant id in any request body |
+| `test/rate-limit.e2e-spec.ts` | `429` after the configured sign-in limit |
+| `test/health.e2e-spec.ts` | Liveness/readiness and the shared error envelope (Prisma stubbed) |
 
 ## 3. Web (`web/`) — http://localhost:3000
 

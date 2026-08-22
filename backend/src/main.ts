@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { API_DOCS_PATH, setupSwagger } from './docs/swagger';
 
 /** Everything at or above the configured level is logged. */
 const LOG_LEVELS: LogLevel[] = ['error', 'warn', 'log', 'debug', 'verbose'];
@@ -40,7 +41,11 @@ async function bootstrap(): Promise<void> {
 
   app.useGlobalFilters(new AllExceptionsFilter());
 
-  // Browser clients only. The Flutter app is not subject to CORS.
+  // Mounted before listen so the contract is browsable as soon as the API is
+  // up. Deliberately outside the API prefix: /docs stays put if API_PREFIX moves.
+  setupSwagger(app);
+
+  // Browser clients only. The React Native app is not subject to CORS.
   app.enableCors({
     origin: corsOrigins,
     credentials: true,
@@ -53,6 +58,7 @@ async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
   logger.log(`Shoprex backend listening on port ${port} under /${apiPrefix}`);
   logger.log(`Readiness: GET /${apiPrefix}/health/ready`);
+  logger.log(`API contract: GET /${API_DOCS_PATH} (raw document at /${API_DOCS_PATH}-json)`);
 }
 
 void bootstrap();
