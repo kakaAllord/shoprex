@@ -41,3 +41,11 @@ mobile/ios/
 .idea/
 .DS_Store
 Thumbs.db
+
+# --- Documentation (temporarily untracked, by owner request 2026-08-22) ---
+# These stay on disk and are still the authoritative specs that AGENT.md's
+# reading order points at — they are simply not committed for the moment.
+# A fresh clone will NOT contain them; get them from the owner directly.
+# Remove this block and re-add the folders when they should be tracked again.
+docs/
+docs-other/

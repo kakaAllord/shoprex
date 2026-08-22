@@ -1,5 +1,22 @@
 # Shoprex V1 — Agent Handoff Instructions
 
+> ## ⚠ Before you commit anything: ask who you are committing as
+>
+> This repository has two developers, **Allord** and **Yosia**, and each one commits to their own branch. **You cannot tell them apart from the machine** — same computer, same git config, same working directory.
+>
+> **So ask, out loud, before every commit: "Am I committing as Allord or as Yosia?"**
+>
+> | Answer | Commit to |
+> |---|---|
+> | Allord | `allord-dev` |
+> | Yosia | `yosia-dev` |
+>
+> Ask once per session, then reuse that answer for the rest of the session. Ask again in a new session — never carry it over.
+>
+> **Never guess, and never infer it** from `git config user.name`, from the author of the last commit, or from who it was last time. If you cannot get an answer, stop and ask rather than picking a branch to keep moving. A commit on the wrong dev branch is painful to unpick once the other person has merged into `staging`.
+>
+> Full rules: [Branching and commits](#branching-and-commits).
+
 ## Mission
 
 You are contributing to Shoprex V1, a fast Android-first shop-selling and stock application for Tanzania. Shoprex consists of one NestJS backend, one Next.js web app, and one React Native (Expo) Android app. The backend is authoritative for users, devices, products, stock, sales, payments, reports, and permissions.
@@ -13,8 +30,9 @@ shoprex/
 ├── backend/      # NestJS + TypeScript API
 ├── web/          # Next.js + TypeScript web app
 ├── mobile/       # React Native (Expo) Android app
-├── docs/         # Product and engineering documentation
+├── docs/         # Product and engineering docs — on disk, deliberately NOT in git
 ├── AGENT.md
+├── CLAUDE.md     # Agent-specific rules; defers to this file
 ├── README.md
 ├── PROGRESS.md
 ├── .env.example
@@ -59,6 +77,39 @@ Do not add customer accounts, returns, refunds, profit/expenses, supplier workfl
 Do not expose normalized stock mathematics to workers unless required to explain an operational outcome. Preserve physical package state and commercial units in receipts and sales history. Never silently change a unit, price, package factor, or historical sale.
 
 All protected endpoints must enforce tenant, branch, role, and permission checks on the server. Hiding a button in the UI is not authorization.
+
+## Branching and commits
+
+The repository has **exactly four branches**. Do not create a fifth — no feature branches, no personal experiment branches, no `phase-2` branch.
+
+| Branch | Who writes to it | Purpose |
+|---|---|---|
+| `main` | nobody directly | Release trunk. Only ever reached by a merge from `staging` |
+| `staging` | nobody directly | Integration. Every test runs here before anything reaches `main` |
+| `allord-dev` | Allord | Allord's working branch |
+| `yosia-dev` | Yosia | Yosia's working branch |
+
+The flow is one direction only:
+
+```text
+allord-dev ─┐
+            ├─► staging ─► main
+yosia-dev ──┘
+```
+
+Work is committed to the author's own dev branch. A merge into `staging` is where the full test suite is run; only after it passes does `staging` merge into `main`. Never commit straight to `staging` or `main`, and never merge one dev branch into the other — they meet in `staging`, not in each other.
+
+### Ask who is committing, every time
+
+**Before any commit, ask whether you are working as Allord or as Yosia, and commit to that person's branch.** Do not infer it from git config, from the last commit's author, or from who it was last time — both developers use this repository and the answer changes between sessions.
+
+Ask once per session and reuse the answer for the rest of that session; ask again in a new session. If the answer is unavailable, stop and ask rather than guessing a branch — a commit on the wrong dev branch is annoying to unpick once the other person has merged.
+
+The only exception is an explicit instruction naming the branch ("commit this to staging"). Follow that, and say which branch you used.
+
+### Before committing
+
+Confirm the branch is the author's own dev branch, run the full test suite, and never commit build output (`dist/`, `.next/`, `node_modules/`, `mobile/android/`, `mobile/ios/`) or any `.env` file. `mobile/app.json` **is** tracked and must be committed — it carries the EAS `projectId`.
 
 ## Phase completion protocol
 

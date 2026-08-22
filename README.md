@@ -10,9 +10,10 @@ shoprex/
 ├── backend/            # NestJS + TypeScript API — the only authoritative service
 ├── web/                # Next.js + TypeScript owner / platform-admin console
 ├── mobile/             # React Native (Expo) Android app (selling and stock)
-├── docs/v1/            # Product, engine, phases, and agent prompt kit
-├── docs-other/         # Background PDFs (reference only)
+├── docs/v1/            # Product, engine, phases, prompt kit — on disk, NOT in git
+├── docs-other/         # Background PDFs (reference only) — on disk, NOT in git
 ├── AGENT.md            # Mandatory rules for any coding agent
+├── CLAUDE.md           # Agent-specific rules; defers to AGENT.md
 ├── PROGRESS.md         # Current phase, blockers, and exact next action
 ├── .env.example        # Every environment variable, documented
 └── docker-compose.yml  # Optional local PostgreSQL
