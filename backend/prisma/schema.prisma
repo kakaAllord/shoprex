@@ -1,0 +1,116 @@
+// Shoprex V1 — Prisma schema.
+//
+// FOUNDATION PHASE SCOPE.
+// This schema intentionally contains no business tables yet. Businesses,
+// branches, users, permissions, devices, products, stock, sales, payments,
+// and audit records are modelled in Phase 1 and later, per
+// docs/02_SHOPREX_V1_ENGINE_AND_MATH.md section 9.
+//
+// The single table below exists so that migration tooling and database
+// connectivity are proven end to end by the readiness health check.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Key/value metadata about the deployed Shoprex instance.
+/// Read by GET /health/ready to prove the API can reach PostgreSQL.
+model AppMetadata {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("app_metadata")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 1 — organization core.
+// A business is the tenant. Every tenant-owned record carries businessId;
+// branch-owned records also carry branchId. See docs 02, sections 2 and 9.
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  PLATFORM_ADMIN
+  OWNER
+  MANAGER
+  WORKER
+}
+
+/// The tenant. One shop business, with one or more branches.
+model Business {
+  id        String   @id @default(uuid())
+  name      String
+  timezone  String   @default("Africa/Dar_es_Salaam")
+  currency  String   @default("TZS")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  branches Branch[]
+  users    User[]
+
+  @@map("businesses")
+}
+
+model Branch {
+  id         String   @id @default(uuid())
+  businessId String   @map("business_id")
+  name       String
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  business    Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  assignments BranchAssignment[]
+
+  @@unique([businessId, name])
+  @@index([businessId])
+  @@map("branches")
+}
+
+/// Platform administrators have no businessId. Every other role must have one.
+/// V1 credentials are email plus password for owners, managers, and admins.
+model User {
+  /// Stable internal identifier, minted at creation. Used for database
+  /// identity and audit attribution; never used as a sign-in secret.
+  id           String    @id @default(uuid())
+  email        String    @unique
+  /// Normalised to +255XXXXXXXXX. Optional so platform administrators and
+  /// workers (who sign in on a device) are not forced to supply one.
+  phone        String?   @unique
+  passwordHash String    @map("password_hash")
+  fullName     String    @map("full_name")
+  role         UserRole
+  businessId   String?   @map("business_id")
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  business    Business?          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  assignments BranchAssignment[]
+
+  @@index([businessId])
+  @@map("users")
+}
+
+/// Which branches a manager or worker may act on. Owners implicitly reach
+/// every branch of their own business.
+model BranchAssignment {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  branchId  String   @map("branch_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, branchId])
+  @@index([branchId])
+  @@map("branch_assignments")
+}

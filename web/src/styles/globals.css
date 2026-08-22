@@ -1,0 +1,396 @@
+/*
+ * Shoprex V1 visual tokens.
+ * Green-led, light-surfaced, Swahili-first. No dark chrome.
+ * Emerald = primary action, Kijani = success/complete, Amber = warning,
+ * Red = destructive only. Light violet is reserved for admin-console accents.
+ */
+
+:root {
+  --shoprex-emerald: #059669;
+  --shoprex-emerald-strong: #047857;
+  --shoprex-emerald-soft: #d1fae5;
+  --shoprex-kijani: #16a34a;
+  --shoprex-amber: #d97706;
+  --shoprex-amber-soft: #fef3c7;
+  --shoprex-red: #dc2626;
+  --shoprex-red-soft: #fee2e2;
+  --shoprex-admin-violet: #7c6bd6;
+  --shoprex-admin-violet-soft: #efeafd;
+
+  --shoprex-surface: #ffffff;
+  --shoprex-surface-muted: #f6f8f7;
+  --shoprex-border: #e2e8e5;
+  --shoprex-text: #14231d;
+  --shoprex-text-muted: #5b6b64;
+
+  --shoprex-radius: 14px;
+  --shoprex-shadow: 0 1px 2px rgba(20, 35, 29, 0.06), 0 8px 24px rgba(20, 35, 29, 0.05);
+  --shoprex-font: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--shoprex-surface-muted);
+  color: var(--shoprex-text);
+  font-family: var(--shoprex-font);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+.shoprex-shell {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 48px 24px 64px;
+}
+
+.shoprex-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--shoprex-emerald-strong);
+  letter-spacing: -0.01em;
+}
+
+.shoprex-brand__mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--shoprex-emerald);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+}
+
+.shoprex-title {
+  margin: 24px 0 6px;
+  font-size: 30px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.shoprex-lede {
+  margin: 0 0 32px;
+  color: var(--shoprex-text-muted);
+  max-width: 58ch;
+}
+
+.shoprex-card {
+  background: var(--shoprex-surface);
+  border: 1px solid var(--shoprex-border);
+  border-radius: var(--shoprex-radius);
+  box-shadow: var(--shoprex-shadow);
+  padding: 20px 22px;
+  margin-bottom: 16px;
+}
+
+.shoprex-card__title {
+  margin: 0 0 12px;
+  font-size: 15px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--shoprex-text-muted);
+}
+
+.shoprex-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.shoprex-status--ok {
+  background: var(--shoprex-emerald-soft);
+  color: var(--shoprex-emerald-strong);
+}
+
+.shoprex-status--warn {
+  background: var(--shoprex-amber-soft);
+  color: var(--shoprex-amber);
+}
+
+.shoprex-status--error {
+  background: var(--shoprex-red-soft);
+  color: var(--shoprex-red);
+}
+
+.shoprex-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.shoprex-kv {
+  display: grid;
+  grid-template-columns: minmax(140px, 200px) 1fr;
+  gap: 8px 16px;
+  margin: 0;
+  font-size: 14px;
+}
+
+.shoprex-kv dt {
+  color: var(--shoprex-text-muted);
+}
+
+.shoprex-kv dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.shoprex-note {
+  font-size: 13px;
+  color: var(--shoprex-text-muted);
+  margin: 12px 0 0;
+}
+
+.shoprex-phase {
+  background: var(--shoprex-admin-violet-soft);
+  color: var(--shoprex-admin-violet);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  display: inline-block;
+}
+
+@media (max-width: 560px) {
+  .shoprex-kv {
+    grid-template-columns: 1fr;
+    gap: 2px 0;
+  }
+
+  .shoprex-kv dd {
+    margin-bottom: 10px;
+  }
+}
+
+/* --- Sign-in and console shell ------------------------------------------- */
+
+.shoprex-shell--narrow {
+  max-width: 520px;
+}
+
+.shoprex-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--shoprex-border);
+}
+
+.shoprex-header__right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.shoprex-header__user {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.shoprex-header__email {
+  font-weight: 400;
+  color: var(--shoprex-text-muted);
+}
+
+.shoprex-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.shoprex-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--shoprex-text-muted);
+  margin-bottom: 6px;
+}
+
+.shoprex-input {
+  font: inherit;
+  padding: 12px 14px;
+  border: 1px solid var(--shoprex-border);
+  border-radius: 10px;
+  background: var(--shoprex-surface);
+  color: var(--shoprex-text);
+  margin-bottom: 16px;
+}
+
+.shoprex-input:focus {
+  outline: 2px solid var(--shoprex-emerald);
+  outline-offset: 1px;
+  border-color: var(--shoprex-emerald);
+}
+
+.shoprex-button {
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  background: var(--shoprex-emerald);
+  border: none;
+  border-radius: 12px;
+  padding: 14px 18px;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.shoprex-button:hover:not(:disabled) {
+  background: var(--shoprex-emerald-strong);
+}
+
+.shoprex-button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.shoprex-linkbutton {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--shoprex-emerald-strong);
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.shoprex-alert {
+  background: var(--shoprex-red-soft);
+  color: var(--shoprex-red);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 14px;
+  margin: 0 0 16px;
+}
+
+.shoprex-devbox {
+  background: var(--shoprex-admin-violet-soft);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+}
+
+.shoprex-devbox__title {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--shoprex-admin-violet);
+}
+
+.shoprex-devbox__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.shoprex-chip {
+  font: inherit;
+  font-size: 13px;
+  background: var(--shoprex-surface);
+  border: 1px solid var(--shoprex-border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.shoprex-chip--active {
+  border-color: var(--shoprex-admin-violet);
+  color: var(--shoprex-admin-violet);
+  font-weight: 600;
+}
+
+.shoprex-devbox .shoprex-note {
+  margin-bottom: 0;
+}
+
+.shoprex-tablewrap {
+  overflow-x: auto;
+}
+
+.shoprex-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.shoprex-table th,
+.shoprex-table td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--shoprex-border);
+  white-space: nowrap;
+}
+
+.shoprex-table th {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--shoprex-text-muted);
+}
+
+.shoprex-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.shoprex-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--shoprex-border);
+}
+
+.shoprex-list li:last-child {
+  border-bottom: none;
+}
+
+.shoprex-optional {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.shoprex-inlineform {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  margin-top: 4px;
+}
+
+.shoprex-inlineform .shoprex-input {
+  flex: 1 1 220px;
+  margin-bottom: 0;
+}
+
+.shoprex-inlineform .shoprex-button {
+  flex: 0 0 auto;
+  padding: 12px 18px;
+}
