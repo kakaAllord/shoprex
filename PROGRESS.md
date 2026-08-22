@@ -24,7 +24,7 @@ If Part A and Part B ever disagree (e.g. the table says "Complete" but a section
 
 **Active phase:** Phase 3, not yet started. Phase 2 closed on 2026-08-22 with 270 automated tests passing across all three surfaces — see §2. Mobile stack changed to React Native after Phase 1 closed (§1a); Phase 1 was independently re-verified before any Phase 2 code (§1c).
 
-**Exact next action:** answer the barcode-format question in §2's blocked list — it is the one thing Phase 3 cannot start without — then begin Phase 3's product, unit, and package-relationship models per `docs/v1/03_SHOPREX_V1_IMPLEMENTATION_PHASES.md`, and mark the Phase 3 row `In progress` when that work starts.
+**Exact next action:** begin Phase 3's product, unit, and package-relationship models per `docs/v1/03_SHOPREX_V1_IMPLEMENTATION_PHASES.md`, and mark the Phase 3 row `In progress` when that work starts. Nothing blocks it: the barcode format was settled on 2026-08-22 as **EAN-13** — see §3.
 
 ---
 
@@ -415,7 +415,7 @@ Nothing blocks Phase 2 — it is complete. Carried forward:
 
 | # | Question | Why it needs the owner | When it starts blocking |
 |---|---|---|---|
-| 1 | **First barcode formats** (EAN-13, UPC-A, Code 128, …) | Determines what the scanner accepts and what a "valid" barcode means at product creation | **Phase 3 — now.** This is the next thing that stops work |
+| 1 | ~~**First barcode formats**~~ | — | **Answered 2026-08-22: EAN-13.** See §3 |
 | 2 | **Pilot shop workflow** | Decides who the first real onboarding is for | Phase 8 |
 | 3 | Confirm only regenerable build output may be cleared during disk cleanup | Nothing of the owner's was touched, but the confirmation was never given | Whenever disk tightens again |
 
@@ -431,7 +431,16 @@ Nothing blocks Phase 2 — it is complete. Carried forward:
 - An enrollment code appears in exactly one response, `IssuedEnrollmentViewDto`. `test/openapi.e2e-spec.ts` walks every response schema and fails if a second one starts carrying a `code`, `token`, or `password`.
 
 ### §3 — Product, barcode, pricing, and stock engine
-*(empty until started)*
+
+**Status:** Not started. *(Populate the build record only after real work begins — the decision below is a confirmed input, not projected content.)*
+
+**Decision confirmed by the owner on 2026-08-22 — do not re-ask:**
+
+| Question | Decision |
+|---|---|
+| First barcode format | **EAN-13.** This is what the scanner accepts and what a "valid" barcode means at product creation |
+
+This closes the last open question from Phase 0, carried through §1 and §2. Every other Phase 3 rule already has a written source: package relationships, fixed conversions, cycle rejection, and physical-versus-normalized stock are all specified in `docs/v1/02_SHOPREX_V1_ENGINE_AND_MATH.md` §§4–5, and the acceptance check is in `docs/v1/03_SHOPREX_V1_IMPLEMENTATION_PHASES.md`.
 
 ### §4 — React Native mobile selling flow
 *(empty until started)*
