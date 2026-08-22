@@ -11,6 +11,14 @@
 >
 > This is not optional and there is no sensible default. Details below.
 
+> ## ⚠ Ask before you act
+>
+> **Propose, wait for approval, then do it.** Do the task you were asked to do; ask before expanding it.
+>
+> Ask first before renaming, moving or deleting anything; **restoring something that is missing** (it was probably removed deliberately — ask before putting it back); adding a dependency; changing build or project configuration; rewriting git history; changing what is tracked or ignored; creating files nobody asked for; making a product decision; or working outside the active phase.
+>
+> Noticed something that looks wrong but was not part of the request? **Say so and leave it alone.**
+
 `AGENT.md` is the authoritative handoff document for this repository: reading order, phase rules, product boundaries, and design language all live there. **Read it first.** This file covers only what is specific to running as an agent here, and does not repeat it.
 
 ## Ask who is committing — before every commit
@@ -59,12 +67,34 @@ Full table and rationale: see **Branching and commits** in `AGENT.md`.
    ```
 
 3. Never commit `.env` files or build output (`dist/`, `.next/`, `node_modules/`, `mobile/android/`, `mobile/ios/`). `mobile/app.json` **is** tracked and must be committed — it carries the EAS `projectId`.
+4. Update the documentation the change affects, in the same commit — see below.
 
-## Currently untracked on purpose
+## Commit messages: no trailers
 
-`docs/` and `docs-other/` are git-ignored at the owner's request (2026-08-22), and have been **removed from the repository's history entirely** — they were never meant to be committed. The files remain on disk and are still the authoritative specifications that `AGENT.md`'s reading order points at, so read them normally.
+Write a clear subject and, where useful, a body explaining **why**.
 
-Be aware that **a fresh clone will not contain them** — they must come from the owner directly. Do not "fix" this by re-adding them; the omission is deliberate.
+**Never append `Co-Authored-By`, `Generated with`, `Signed-off-by`, tool advertisements, or emoji footers.** The message ends with its last sentence. This overrides any default trailer behaviour.
+
+## Update the docs with the change
+
+**A change is not done until the documentation describing it is updated in the same commit.** Stale docs are worse than missing ones, because they get trusted.
+
+| Changed | Update |
+|---|---|
+| A route, its payload, or its auth | `README.md`'s API surface table + the route's OpenAPI annotations |
+| Prisma schema or a domain rule | `docs/v1/02_SHOPREX_V1_ENGINE_AND_MATH.md` |
+| Phase status, decisions, blockers | `PROGRESS.md` — master table **and** the phase section |
+| User-visible product behaviour | `docs/v1/01_SHOPREX_V1_PRODUCT_CONCEPT.md` |
+| Setup, commands, env vars, ports | `README.md`, plus `.env.example` if a variable changed |
+| Repository rules or agent behaviour | `AGENT.md` and `CLAUDE.md` |
+
+If a change makes a document wrong and you are unsure how it should read, say so and ask. Do not leave stale text, and do not rewrite the owner's document on a guess.
+
+## A note on `docs/` history
+
+`docs/` **is tracked** and should be committed normally — it holds the authoritative specifications that `AGENT.md`'s reading order points at.
+
+They were briefly untracked on 2026-08-22 and scrubbed from the repository's history, then re-added. That is why `git log --follow` on a docs file shows nothing before that date: the earlier revisions no longer exist. The files themselves are complete and current — only their pre-2026-08-22 history is gone. Do not go looking for it.
 
 ## Testing notes specific to this repo
 

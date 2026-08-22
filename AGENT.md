@@ -17,6 +17,24 @@
 >
 > Full rules: [Branching and commits](#branching-and-commits).
 
+> ## ⚠ Ask before you act. Do not decide things on your own.
+>
+> **Propose, wait for approval, then do it.** This is the default for anything beyond the task you were actually asked to do. When in doubt, ask — the cost of one question is far lower than the cost of undoing unrequested work.
+>
+> Always ask first before:
+>
+> - **Renaming, moving, or deleting anything** — files, folders, branches, database columns.
+> - **Restoring something that is missing.** It was very likely removed on purpose. Ask before putting it back.
+> - **Adding a dependency**, changing a build tool, or changing project configuration.
+> - **Rewriting git history**, force-pushing, or changing what is tracked or ignored.
+> - **Creating files nobody asked for** — extra READMEs, notes, helper scripts, summary documents.
+> - **Making a product decision.** Those belong to the owner. Record the question in `PROGRESS.md` under "Blocked / awaiting user" and stop.
+> - **Working outside the active phase**, or building a surface a later phase owns.
+>
+> Doing the work you were asked to do — writing the code, fixing the bug, adding the test — needs no permission. Expanding the job does.
+>
+> If you notice something that looks wrong but was not part of the request, **say so and leave it alone.** Reporting it is helpful; silently "fixing" it is not.
+
 ## Mission
 
 You are contributing to Shoprex V1, a fast Android-first shop-selling and stock application for Tanzania. Shoprex consists of one NestJS backend, one Next.js web app, and one React Native (Expo) Android app. The backend is authoritative for users, devices, products, stock, sales, payments, reports, and permissions.
@@ -30,7 +48,7 @@ shoprex/
 ├── backend/      # NestJS + TypeScript API
 ├── web/          # Next.js + TypeScript web app
 ├── mobile/       # React Native (Expo) Android app
-├── docs/         # Product and engineering docs — on disk, deliberately NOT in git
+├── docs/         # Product and engineering documentation
 ├── AGENT.md
 ├── CLAUDE.md     # Agent-specific rules; defers to this file
 ├── README.md
@@ -110,6 +128,27 @@ The only exception is an explicit instruction naming the branch ("commit this to
 ### Before committing
 
 Confirm the branch is the author's own dev branch, run the full test suite, and never commit build output (`dist/`, `.next/`, `node_modules/`, `mobile/android/`, `mobile/ios/`) or any `.env` file. `mobile/app.json` **is** tracked and must be committed — it carries the EAS `projectId`.
+
+### Commit messages
+
+Write a clear subject line and, where it helps, a body explaining **why** the change was made rather than restating what the diff shows.
+
+**No trailers, no attribution noise.** Do not add `Co-Authored-By`, `Generated with`, `Signed-off-by`, tool advertisements, emoji banners, or any similar footer. The commit message ends with its last sentence. The work is the developer's; the tooling does not sign it.
+
+## Keep the documentation current
+
+**A change is not finished until the documentation that describes it is updated in the same commit.** Documentation that lags behind the code is worse than no documentation, because it is trusted and wrong.
+
+| When you change | Update |
+|---|---|
+| An API route, its payload, or its auth | `README.md`'s API surface table, and the route's OpenAPI annotations |
+| The Prisma schema, or a domain rule | `docs/v1/02_SHOPREX_V1_ENGINE_AND_MATH.md` |
+| Phase status, decisions, blockers, known issues | `PROGRESS.md` — both the master table and the phase's own section |
+| Product behaviour a user would notice | `docs/v1/01_SHOPREX_V1_PRODUCT_CONCEPT.md` |
+| Setup, commands, environment variables, ports | `README.md`, and `.env.example` if a variable changed |
+| Repository rules, workflow, or agent behaviour | `AGENT.md` and `CLAUDE.md` |
+
+If a change makes an existing document wrong and you are not sure how it should read, **say so and ask** — do not leave the stale text standing, and do not rewrite the owner's document on a guess.
 
 ## Phase completion protocol
 

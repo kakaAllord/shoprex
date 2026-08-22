@@ -1,0 +1,169 @@
+# Shoprex V1 — Engine and Mathematics
+
+**Purpose:** This document defines the internal rules that make Shoprex more than a simple POS. It is separate from the human-facing product concept so agents can implement the engine without exposing unnecessary complexity to shop users.
+
+## 1. Technical direction
+
+The confirmed V1 stack is:
+
+| Layer | Choice |
+|---|---|
+| Mobile | React Native with Expo (development build, not Expo Go), Android first |
+| Web | Next.js with TypeScript |
+| Backend | NestJS with TypeScript |
+| Database | PostgreSQL, one shared multi-tenant database |
+| API | One NestJS API consumed by React Native and Next.js; REST with generated/request-validated schemas is preferred |
+| Authentication | Full account authentication for platform administrators and owners; delegated managers/workers receive scoped credentials and operational PIN/password access as approved |
+| Barcode scanning | Expo camera-based barcode scanning (`expo-camera`) using the phone camera |
+| Reporting | Backend-generated daily report and PDF |
+| V1 connectivity | Online-only operational transactions; no offline queue or conflict resolution in V1 |
+
+The backend is the only service allowed to create or mutate authoritative sales, stock, device, and permission records. The web app must not connect directly to PostgreSQL.
+
+## 2. Tenant and authorization rules
+
+A **business** is the tenant. A business may have one or more **branches**. Every tenant-owned record contains `business_id`; branch-owned records also contain `branch_id`.
+
+Every protected request must resolve the authenticated principal, business, permitted branches, role, and permissions on the server. The backend must never trust a business ID, branch ID, user ID, or device ID supplied by the client without checking ownership and authorization.
+
+The role hierarchy is:
+
+| Role | Scope | Main authority |
+|---|---|---|
+| Platform administrator | Entire Shoprex platform | Create/manage shop accounts and platform-level operations |
+| Owner | Entire business | Manage branches, products, devices, users, payment methods, reports, and business-wide visibility |
+| Manager | Assigned branch or branches | Manage the branch within permissions delegated by the owner |
+| Worker | Assigned branch | Sell, receive stock, view stock, or view totals only when permitted |
+
+The owner may act as the manager for a branch. The data model must also support creating a separate manager later without forcing the owner to create a duplicate owner account.
+
+## 3. Device enrollment mathematics and identity
+
+A device is a first-class record, not merely an anonymous login session. At minimum, store:
+
+- a globally unique `device_id`;
+- business and branch ownership;
+- a human-readable device name;
+- an active/revoked status;
+- a password/PIN hash or equivalent credential reference;
+- an enrollment-token hash, expiry, and used status;
+- creation, last-seen, and revocation timestamps.
+
+The QR code and link must contain a short-lived, single-use enrollment token rather than a permanent secret. After enrollment, the mobile app stores a device credential securely and uses the backend to authenticate the device. A revoked device must not create sales or stock movements.
+
+Multiple devices are allowed in V1. Because V1 requires devices to be online, each authoritative transaction is accepted by the backend in normal request order. The system does not implement offline writes, an outbox, conflict resolution, or background reconciliation in this version.
+
+## 4. Product identity and units
+
+A product is one SKU identity, such as **Coke 500ml**. Different sizes are different products. A package is a way of handling one product, such as Piece, Carton, Bale, Sack, Pack, Bottle, kg, or a custom name.
+
+A package name has no universal business meaning. Product A may define `1 Carton = 6 Pieces`, while Product B defines `1 Carton = 48 Pieces`. Relationships belong to the product.
+
+Use one generic relationship:
+
+> **One parent unit contains `factor × child unit`.**
+
+Examples:
+
+```text
+Product A: 1 Carton = 6 Pieces
+Product B: 1 Carton = 48 Pieces
+Product C: 1 Sack = 50 kg = 50,000 g
+```
+
+Fixed measurement conversions remain fixed and cannot be redefined by a business:
+
+```text
+1 kg = 1,000 g
+1 L  = 1,000 ml
+1 m  = 100 cm
+1 dozen = 12 count units
+```
+
+Custom units are allowed when a business needs a product-specific grouping, for example `1 Fungu = 8 Pieces`.
+
+The engine must reject cyclic relationships. A product may be incompletely configured. If a shop only sells Coke by Carton, it does not need to define the Piece relationship until it begins selling Pieces.
+
+## 5. Stock mathematics
+
+The engine maintains two related views:
+
+1. **Normalized quantity**, used for arithmetic and reconciliation.
+2. **Physical package state**, used to explain what the shop physically has, such as `5 Cartons + 5 Pieces`.
+
+For a product with `1 Carton = 6 Pieces`:
+
+```text
+Receive 6 Cartons = +36 Pieces normalized
+Sell 1 Piece      = -1 Piece
+Remaining         = 5 Cartons + 5 Pieces = 35 Pieces normalized
+```
+
+When selling a child unit and loose stock is insufficient, the engine may break a larger package. For example, selling one Piece from `1 Carton` may produce `0 Cartons + 5 Pieces`.
+
+The engine must never automatically repackage upward. If the shop has 6 loose Pieces, it must not silently invent `1 Carton`; physical packaging matters.
+
+The transaction must fail safely when stock is insufficient, unless a separate approved negative-stock policy is introduced. Do not hide an inventory deficit by changing units or prices.
+
+## 6. Sales rules
+
+A sale contains one or more lines. Each line preserves the commercial unit actually sold. If a product is sold as `2 Cartons` and `5 Pieces`, those remain separate lines even if the normalized quantity could be combined.
+
+If a product has only one valid sellable unit, scanning or selecting it adds quantity `1` immediately. Repeated scans increment the existing line. If multiple units are available, the app shows a compact unit and quantity choice.
+
+Line total is deterministic:
+
+```text
+line_total = quantity × unit_price
+sale_total = sum(line_total for all sale lines)
+```
+
+A sale line stores snapshots of product name, unit name, quantity, price, line total, conversion used, and normalized stock quantity removed. Later product-price or package-relationship changes must never rewrite old completed sales.
+
+The complete sale command should be atomic: create the sale, create lines, validate payment settlement, record payments/debt, and apply stock movements as one backend transaction. The command must accept an idempotency key so a retried network request cannot duplicate a sale.
+
+## 7. Payments and debt
+
+Payment methods are configured per business and only active methods appear at checkout. V1 records payment methods; it does not directly connect to mobile-money providers.
+
+Cash change is calculated automatically:
+
+```text
+change = cash_received - sale_total
+```
+
+Mixed payments are valid only when the settled amount equals the sale total:
+
+```text
+sum(payment_amounts) = amount_settled
+```
+
+A debt sale records only a free-text debtor name and the amount owed. It does not create a customer account, CRM profile, customer history, or collection workflow.
+
+## 8. Daily reporting rules
+
+The backend groups transactions by the business/branch timezone, not by the server’s timezone. V1 should default to Tanzania time unless a future multi-country configuration is approved.
+
+Daily reports include business and branch identity, selected date, total sales, payment-method totals, debt total, stock received, and transaction summaries. Profit and expense calculations are excluded.
+
+## 9. Minimum domain tables
+
+The implementation may divide or rename tables, but it must preserve these concepts:
+
+| Area | Core records |
+|---|---|
+| Organization | businesses, branches, users, branch assignments, permissions |
+| Devices | devices, enrollment tokens, device sessions |
+| Catalogue | products, units, product units, unit relationships, prices, barcodes |
+| Stock | stock receipts, stock receipt lines, stock movements, current physical stock |
+| Sales | sales, sale lines, payments, debts, receipts |
+| Settings | payment methods, business settings |
+| Audit | actor, device, timestamps, idempotency records |
+
+## 10. Mandatory engine tests
+
+Tests must cover product-specific package factors, fixed conversions, cycle rejection, progressive product creation, physical stock breaking, no automatic repacking, single-unit auto-add, repeated scans, different-unit sale lines, price snapshots, conversion snapshots, cash change, mixed payment equality, debt-name capture, insufficient-stock protection, tenant isolation, permission enforcement, and idempotent sale submission.
+
+## References
+
+[1]: /home/ubuntu/upload/SHOPREX_V1_Approved_Implementation_Spec.md "SHOPREX V1 Approved Implementation Specification"
