@@ -284,6 +284,7 @@ These tests were **mutation-checked**, not merely observed passing: disabling th
 | Per-worker PIN for attribution on a shared device? | **Not needed** — a device already identifies exactly one worker, so device identity *is* the attribution (closes Phase 0 open decision 4) |
 | Device naming | The worker's own name is used as the device name, so the owner can see at a glance whose phone it is. A naming convention, not a separate identity mechanism |
 | Device identity | Shoprex **mints `device_id` server-side at enrollment**; the app stores it. Confirmed by the owner after the Android hardware-id correction |
+| Re-enrolling a worker who already has a device | **Refuse the second enrollment until the owner revokes the first.** Confirmed by the owner 2026-08-22. Never replace the existing device silently |
 
 **Enrollment flow to build:**
 1. Owner creates a worker: supplies the worker's name and a password for them.
@@ -292,18 +293,29 @@ These tests were **mutation-checked**, not merely observed passing: disabling th
 4. The worker enters the token in the React Native app; the app binds that installation to the business, branch, worker, and device record, and stores the server-minted `device_id`.
 5. Afterwards the worker signs in on that device with their password — no token.
 
-**Design consequences of "one device, one worker":** the device record carries a worker reference, not just a business and branch; a second enrollment for the same worker should either move them to the new device or be refused (owner decision needed at build time); and a revoked device must not create sales or stock movements.
+**Design consequences of "one device, one worker":** the device record carries a worker reference, not just a business and branch; a second enrollment for a worker who already holds an active device is **refused** (see below); and a revoked device must not create sales or stock movements.
 
-**Blocked / awaiting user.** None of these stop Phase 2 backend work from starting, but each must be answered by the owner rather than decided by an agent. Recorded here per `AGENT.md` instead of being resolved silently.
+**Re-enrollment: refuse until revoked — confirmed by the owner 2026-08-22.**
+
+Redeeming an enrollment token for a worker who already has an **active** device must fail. It must not silently move the worker to the new phone. The owner revokes the old device first, and only then can a new enrollment succeed.
+
+What this means at build time:
+
+- Redemption checks for an existing active device for that worker **before** binding anything, and refuses with a message naming the device already held — the owner needs to know *which* phone to revoke, and the worker standing in the shop needs to know why it failed.
+- Refusal must **not** consume the one-time token. A token burnt by a refused attempt would strand the worker until the owner issued another one. Only a successful bind consumes it.
+- Revocation is therefore on the critical path for a lost or stolen phone, not an administrative afterthought. It needs to be reachable and tested in this phase, not deferred to Phase 6's UI.
+- The check is on **active** devices only: a revoked device must not block a new enrollment, or revocation would not actually free the worker.
+- Cover it with a test that a second redemption is refused, that the token survives the refusal, and that the same token then succeeds once the first device is revoked.
+
+**Why this way:** it is the reversible choice. It produces an audit trail, and whoever holds a token cannot quietly move a worker onto a different phone. It can be relaxed to auto-replace later without invalidating any stored device; the reverse is not true.
+
+**Blocked / awaiting user.** **Nothing blocks Phase 2 any more.** The re-enrollment question — the only one that could have stalled it — was answered by the owner on 2026-08-22 and is recorded above. The items below are open but belong to later phases.
 
 | # | Question | Why it needs the owner | When it starts blocking |
 |---|---|---|---|
-| 1 | **Re-enrollment:** when a worker already bound to a device is enrolled again — new phone, lost phone, factory reset — does the new device **replace** the old one automatically, or is the second enrollment **refused** until the owner revokes the first? | Both are defensible and they behave differently the first time a worker loses a phone mid-shift. "One device, one worker" forces the choice rather than settling it. Silent replacement is the convenient answer and also the one that lets a stolen phone be swapped out by whoever holds the token | At the moment enrollment redemption is implemented — this is the branch it hinges on |
-| 2 | **First barcode formats** (EAN-13, UPC-A, Code 128, …) | Determines what the scanner accepts and what a "valid" barcode means at product creation | Phase 3, not Phase 2 |
-| 3 | **Pilot shop workflow** | Decides who the first real onboarding is for | Phase 8 |
-| 4 | Carried over from §1: confirm only regenerable build output may be cleared during disk cleanup | Nothing of the owner's was touched, but the confirmation was never given | Whenever disk tightens again |
-
-Decision 1 is the only one that can stall Phase 2. **Suggested default if no answer arrives:** refuse the second enrollment and require an explicit revoke first — it is the reversible choice, it produces an audit trail, and it can be relaxed to auto-replace later without invalidating any stored device. Do not treat this paragraph as the decision; it is the recommendation to put to the owner.
+| 1 | **First barcode formats** (EAN-13, UPC-A, Code 128, …) | Determines what the scanner accepts and what a "valid" barcode means at product creation | Phase 3, not Phase 2 |
+| 2 | **Pilot shop workflow** | Decides who the first real onboarding is for | Phase 8 |
+| 3 | Carried over from §1: confirm only regenerable build output may be cleared during disk cleanup | Nothing of the owner's was touched, but the confirmation was never given | Whenever disk tightens again |
 
 **Kickoff note:** start on the backend — `Device` and `DeviceEnrollmentToken` models, worker creation under the owner, one-time token issue/redeem with expiry, and revocation — with tenant and role checks tested exactly as Phase 1 does. The `expo-camera` barcode work belongs to Phase 3/4, not here.
 
