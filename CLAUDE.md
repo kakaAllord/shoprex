@@ -47,11 +47,13 @@ Exactly four, and no more. Do not create feature branches.
 
 ```text
 allord-dev ─┐
-            ├─► staging ─► main
+            ├─► staging ─► production
 yosia-dev ──┘
 ```
 
-`allord-dev` and `yosia-dev` are the only branches written to directly. Both merge into `staging`, where the full test suite runs. Only a green `staging` merges into `main`. Never commit straight to `staging` or `main`, and never merge one dev branch into the other.
+`allord-dev` and `yosia-dev` are the only branches written to directly. Both merge into `staging`, where the full test suite runs. Only a green `staging` merges into `production`. Never commit straight to `staging` or `production`, and never merge one dev branch into the other.
+
+The release trunk is **`production`**, not `main`, and it is the repository's default branch. Renamed 2026-08-23 at the owner's instruction; the flow itself is unchanged.
 
 Full table and rationale: see **Branching and commits** in `AGENT.md`.
 

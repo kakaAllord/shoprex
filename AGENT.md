@@ -102,8 +102,8 @@ The repository has **exactly four branches**. Do not create a fifth — no featu
 
 | Branch | Who writes to it | Purpose |
 |---|---|---|
-| `main` | nobody directly | Release trunk. Only ever reached by a merge from `staging` |
-| `staging` | nobody directly | Integration. Every test runs here before anything reaches `main` |
+| `production` | nobody directly | Release trunk. Only ever reached by a merge from `staging` |
+| `staging` | nobody directly | Integration. Every test runs here before anything reaches `production` |
 | `allord-dev` | Allord | Allord's working branch |
 | `yosia-dev` | Yosia | Yosia's working branch |
 
@@ -111,11 +111,13 @@ The flow is one direction only:
 
 ```text
 allord-dev ─┐
-            ├─► staging ─► main
+            ├─► staging ─► production
 yosia-dev ──┘
 ```
 
-Work is committed to the author's own dev branch. A merge into `staging` is where the full test suite is run; only after it passes does `staging` merge into `main`. Never commit straight to `staging` or `main`, and never merge one dev branch into the other — they meet in `staging`, not in each other.
+Work is committed to the author's own dev branch. A merge into `staging` is where the full test suite is run; only after it passes does `staging` merge into `production`. Never commit straight to `staging` or `production`, and never merge one dev branch into the other — they meet in `staging`, not in each other.
+
+The release trunk is called **`production`**, not `main` — renamed on 2026-08-23 at the owner's instruction, when the repository was first pushed to `github.com:kakaAllord/shoprex`. It is the repository's default branch. Nothing else about the flow changed.
 
 ### Ask who is committing, every time
 
