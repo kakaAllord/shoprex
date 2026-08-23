@@ -110,6 +110,18 @@ describe('OpenAPI contract (e2e)', () => {
       ['/api/v1/payment-methods', 'get'],
       ['/api/v1/branches/{branchId}/sales', 'post'],
       ['/api/v1/branches/{branchId}/sales/{id}', 'get'],
+      // Phase 6 - the owner and admin web console. Five of these are the
+      // routes earlier phases deliberately deferred here: the price edit and
+      // the barcode attach (§3 known issues 2 and 3), payment-method settings
+      // (Phase 4 shipped the read only), and the sales list (Phase 4 shipped
+      // the receipt only).
+      ['/api/v1/businesses/{id}', 'patch'],
+      ['/api/v1/products/{id}', 'patch'],
+      ['/api/v1/products/{id}/units/{unitId}', 'patch'],
+      ['/api/v1/products/{id}/barcodes', 'post'],
+      ['/api/v1/payment-methods', 'post'],
+      ['/api/v1/payment-methods/{id}', 'patch'],
+      ['/api/v1/branches/{branchId}/sales', 'get'],
     ];
 
     it.each(expected)('documents %s %s', (path, method) => {
@@ -166,6 +178,13 @@ describe('OpenAPI contract (e2e)', () => {
       ['/api/v1/payment-methods', 'get'],
       ['/api/v1/branches/{branchId}/sales', 'post'],
       ['/api/v1/branches/{branchId}/sales/{id}', 'get'],
+      ['/api/v1/businesses/{id}', 'patch'],
+      ['/api/v1/products/{id}', 'patch'],
+      ['/api/v1/products/{id}/units/{unitId}', 'patch'],
+      ['/api/v1/products/{id}/barcodes', 'post'],
+      ['/api/v1/payment-methods', 'post'],
+      ['/api/v1/payment-methods/{id}', 'patch'],
+      ['/api/v1/branches/{branchId}/sales', 'get'],
     ] as [string, HttpMethod][])(
       'marks %s %s as requiring a bearer token',
       (path, method) => {
@@ -230,7 +249,21 @@ describe('OpenAPI contract (e2e)', () => {
 
       // Guards the walk itself: an empty list would pass vacuously.
       expect(requestBodySchemas()).toEqual(
-        expect.arrayContaining(['SignupDto', 'LoginDto', 'CreateBranchDto', 'CreateBusinessDto']),
+        expect.arrayContaining([
+          'SignupDto',
+          'LoginDto',
+          'CreateBranchDto',
+          'CreateBusinessDto',
+          // Phase 6's writes are walked too. Product management and payment
+          // settings both act on the caller's own tenant, and neither may
+          // start naming which one.
+          'UpdateProductDto',
+          'UpdateProductUnitDto',
+          'AttachBarcodeDto',
+          'CreatePaymentMethodDto',
+          'UpdatePaymentMethodDto',
+          'UpdateBusinessStatusDto',
+        ]),
       );
       expect(offenders).toEqual([]);
     });
@@ -279,6 +312,16 @@ describe('OpenAPI contract (e2e)', () => {
         'payments',
       ]);
       expect(document.paths['/api/v1/branches/{branchId}/sales']).toBeDefined();
+    });
+
+    it('keeps the sales list’s branch in the URL rather than the body', () => {
+      // Phase 6 added a sales *list* beside the sale command. It is a query,
+      // not a body, and its branch is still a path segment - so the allowlist
+      // below did not have to grow to accommodate the console.
+      expect(document.paths['/api/v1/branches/{branchId}/sales']?.get).toBeDefined();
+      expect(
+        Object.keys(document.components?.schemas?.ListSalesDto ?? {}),
+      ).not.toContain('branchId');
     });
 
     it('accepts a branch id only where the owner must choose one', () => {

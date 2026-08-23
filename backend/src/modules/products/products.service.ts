@@ -14,8 +14,11 @@ import { UnitGraph, UnitGraphError, assertFixedConversionRespected } from '../..
 import { AuditService } from '../audit/audit.service';
 import { actorFrom } from '../users/users.service';
 import { AddProductUnitDto } from './dto/add-product-unit.dto';
+import { AttachBarcodeDto } from './dto/attach-barcode.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { SearchProductsDto } from './dto/search-products.dto';
+import { UpdateProductDto } from './dto/update-product.dto';
+import { UpdateProductUnitDto } from './dto/update-product-unit.dto';
 
 export interface ProductUnitView {
   id: string;
@@ -270,6 +273,223 @@ export class ProductsService {
   }
 
   /**
+   * Renaming or discontinuing a product. Owners only.
+   *
+   * Deferred here from Phase 3 on purpose - §3 known issue 3 - because product
+   * management is this console's job. It stays owner-only for the same reason
+   * `POST /branches` and `PATCH /users/{id}/permissions` do: what the shop
+   * carries and what it charges are business-wide decisions, and a seller who
+   * needs an unknown item on the shelf already has `POST /products`.
+   *
+   * Discontinuing does not delete. Doc 02 §6 is explicit that history is
+   * history: every completed sale snapshotted its own product name and price,
+   * so nothing here can reach backwards.
+   */
+  async update(
+    principal: AuthenticatedUser,
+    productId: string,
+    dto: UpdateProductDto,
+  ): Promise<ProductView> {
+    const businessId = requireBusiness(principal);
+    const product = await this.requireProduct(principal, productId);
+    const name = dto.name?.trim();
+
+    if (name === undefined && dto.isActive === undefined) {
+      throw new BadRequestException('Nothing to change - supply a name, isActive, or both');
+    }
+
+    if (name !== undefined && name.toLowerCase() !== product.name.toLowerCase()) {
+      const clash = await this.prisma.product.findFirst({ where: { businessId, name } });
+
+      if (clash) {
+        throw new ConflictException(
+          'Bidhaa yenye jina hilo ipo tayari · A product with that name already exists',
+        );
+      }
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const saved = await tx.product.update({
+        where: { id: product.id },
+        data: {
+          ...(name === undefined ? {} : { name }),
+          ...(dto.isActive === undefined ? {} : { isActive: dto.isActive }),
+        },
+        include: PRODUCT_INCLUDE,
+      });
+
+      await this.audit.record(
+        actorFrom(principal),
+        {
+          businessId,
+          action: AuditAction.PRODUCT_UPDATED,
+          targetType: 'Product',
+          targetId: product.id,
+          summary: describeProductUpdate(
+            product.name,
+            saved.name,
+            product.isActive,
+            saved.isActive,
+          ),
+        },
+        tx,
+      );
+
+      return saved;
+    });
+
+    return this.toView(updated);
+  }
+
+  /**
+   * Repricing or renaming one packaging. Owners only.
+   *
+   * The audit line records what the price *was* as well as what it became.
+   * "Why is a crate 7,000 now?" is a question an owner asks weeks later, and
+   * the sale lines cannot answer it - they hold what was charged, not when
+   * somebody changed the number.
+   */
+  async updateUnit(
+    principal: AuthenticatedUser,
+    productId: string,
+    unitId: string,
+    dto: UpdateProductUnitDto,
+  ): Promise<ProductView> {
+    const businessId = requireBusiness(principal);
+    const product = await this.requireProduct(principal, productId);
+    const unit = product.units.find((candidate) => candidate.id === unitId);
+
+    if (!unit) {
+      throw new NotFoundException('That unit does not belong to this product');
+    }
+
+    const name = dto.name?.trim();
+
+    if (name === undefined && dto.priceTzs === undefined) {
+      throw new BadRequestException('Nothing to change - supply a name, priceTzs, or both');
+    }
+
+    if (
+      name !== undefined &&
+      product.units.some(
+        (other) => other.id !== unit.id && other.name.toLowerCase() === name.toLowerCase(),
+      )
+    ) {
+      throw new ConflictException(
+        'Bidhaa hii tayari ina kipimo hicho · That product already has a unit with that name',
+      );
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const saved = await tx.productUnit.update({
+        where: { id: unit.id },
+        data: {
+          ...(name === undefined ? {} : { name }),
+          ...(dto.priceTzs === undefined ? {} : { priceTzs: dto.priceTzs }),
+        },
+      });
+
+      if (dto.priceTzs !== undefined && dto.priceTzs !== unit.priceTzs) {
+        await this.audit.record(
+          actorFrom(principal),
+          {
+            businessId,
+            action: AuditAction.PRODUCT_PRICE_CHANGED,
+            targetType: 'ProductUnit',
+            targetId: unit.id,
+            summary: `Bei ya ${product.name} (${saved.name}): ${unit.priceTzs ?? 'haijawekwa'} → ${dto.priceTzs} TSh`,
+          },
+          tx,
+        );
+      }
+
+      if (name !== undefined && name !== unit.name) {
+        await this.audit.record(
+          actorFrom(principal),
+          {
+            businessId,
+            action: AuditAction.PRODUCT_UPDATED,
+            targetType: 'ProductUnit',
+            targetId: unit.id,
+            summary: `Kipimo cha ${product.name}: ${unit.name} → ${name}`,
+          },
+          tx,
+        );
+      }
+
+      return tx.product.findUniqueOrThrow({
+        where: { id: product.id },
+        include: PRODUCT_INCLUDE,
+      });
+    });
+
+    return this.toView(updated);
+  }
+
+  /**
+   * Attaching a barcode to a product that already exists. Owners only.
+   *
+   * Phase 3 could put a code on a product at creation or on a unit as it was
+   * added, but a product typed in without one had no way to acquire it later
+   * (§3 known issue 2). A shop that spent its first busy week adding items by
+   * name has a drawer full of exactly that problem.
+   *
+   * Barcodes stay unique **per tenant**: two shops may stock the same item, so
+   * the clash that matters is one inside this business.
+   */
+  async attachBarcode(
+    principal: AuthenticatedUser,
+    productId: string,
+    dto: AttachBarcodeDto,
+  ): Promise<ProductView> {
+    const businessId = requireBusiness(principal);
+    const product = await this.requireProduct(principal, productId);
+    const value = this.resolveBarcode(dto.barcode);
+
+    if (!value) {
+      throw new BadRequestException(
+        'Namba ya bidhaa si sahihi · That is not a valid EAN-13 barcode',
+      );
+    }
+
+    if (dto.productUnitId && !product.units.some((unit) => unit.id === dto.productUnitId)) {
+      throw new NotFoundException('That unit does not belong to this product');
+    }
+
+    await this.assertBarcodeFree(businessId, value);
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.barcode.create({
+        data: {
+          businessId,
+          productId: product.id,
+          productUnitId: dto.productUnitId ?? null,
+          value,
+        },
+      });
+
+      await this.audit.record(
+        actorFrom(principal),
+        {
+          businessId,
+          action: AuditAction.BARCODE_ATTACHED,
+          targetType: 'Product',
+          targetId: product.id,
+          summary: `Namba ${value} imeunganishwa na ${product.name} · Barcode ${value} attached to ${product.name}`,
+        },
+        tx,
+      );
+
+      return tx.product.findUniqueOrThrow({
+        where: { id: product.id },
+        include: PRODUCT_INCLUDE,
+      });
+    });
+
+    return this.toView(updated);
+  }
+
+  /**
    * Manual search suggestions. Matches anywhere in the name rather than only at
    * the start, because a seller types "coke" for "Coca-Cola 500ml".
    */
@@ -469,4 +689,27 @@ export class ProductsService {
       createdAt: product.createdAt,
     };
   }
+}
+
+/**
+ * One audit line for a product edit, saying which of the two things changed.
+ * Written out rather than assembled inline so the strings stay readable.
+ */
+function describeProductUpdate(
+  wasName: string,
+  isName: string,
+  wasActive: boolean,
+  isActive: boolean,
+): string {
+  const parts: string[] = [];
+
+  if (wasName !== isName) {
+    parts.push(`jina: ${wasName} → ${isName}`);
+  }
+
+  if (wasActive !== isActive) {
+    parts.push(isActive ? 'imerudishwa sokoni · restored' : 'imesitishwa · discontinued');
+  }
+
+  return `${isName}${parts.length > 0 ? ` (${parts.join(', ')})` : ' (hakuna mabadiliko)'}`;
 }

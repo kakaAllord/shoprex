@@ -38,6 +38,26 @@ The role hierarchy is:
 
 The owner may act as the manager for a branch. The data model must also support creating a separate manager later without forcing the owner to create a duplicate owner account.
 
+**As built in Phase 6 — suspending a shop account.** `Business.isActive` is now
+enforced, and enforced *everywhere at once*. A platform administrator sets it
+through `PATCH /businesses/{id}`; sign-in already refused a suspended shop
+(`AuthService.login`, `loginDevice`, `deviceSignInOptions`, and
+`DevicesService.redeemEnrollment` all check it), and `BusinessActiveGuard`
+closes the remaining gap by refusing **tokens that were issued before the
+suspension**, on their very next request. An account that is suspended
+everywhere except in the sessions already open is not suspended, and an
+eight-hour token is a long time to leave a door open. This is the same rule
+device revocation chose in Phase 2, for the same reason.
+
+The refusal is **403, not 401**: the credentials are perfectly good, and telling
+somebody to sign in again would send them round a loop ending in the same
+place. Platform administrators carry no `business_id` and are unaffected.
+
+Suspension **deletes nothing and cascades nowhere**. Products, stock, sales,
+and history stay exactly as they are, and restoring the account brings the shop
+back whole — which is what makes it a safe thing for a platform administrator
+to do, and a safe thing to undo.
+
 ## 3. Device enrollment mathematics and identity
 
 A device is a first-class record, not merely an anonymous login session. At minimum, store:
@@ -270,6 +290,27 @@ rather than added up. The phone's cart is supposed to increment the line it
 already has, and quietly summing them would hide that bug instead of surfacing
 it.
 
+**Discontinuing a product, as built in Phase 6.** `Product.isActive` is now
+enforced, and enforced at exactly one place: `StockService.resolveUnit`, which
+every write path to stock already goes through — receiving, selling, and the
+bare issue — and which no read path goes through. So a discontinued item cannot
+be sold or received (**409**, naming it), and yet:
+
+- **Stoo still shows what is on the shelf.** The count does not stop being true
+  because the shop stopped restocking.
+- **Every past sale still reads the way it did.** Discontinuing is not
+  deleting; the lines snapshotted their own names and prices.
+- **A barcode scan still finds it**, deliberately. Answering "unknown code"
+  would invite somebody to create a duplicate product carrying a barcode that
+  is already taken; answering with the product lets the phone say *this was
+  discontinued*. `mobile/src/domain/cart.ts` refuses it there, at the moment of
+  the scan, rather than letting it reach the payment sheet and fail.
+
+There is deliberately **no way to switch off a single packaging** or to unset a
+price. The base unit cannot go without taking the arithmetic with it, and the
+branch holds physical stock per unit; discontinuing the whole product is the
+supported verb, and the narrower one needs rules nobody has written.
+
 ## 7. Payments and debt
 
 Payment methods are configured per business and only active methods appear at checkout. V1 records payment methods; it does not directly connect to mobile-money providers.
@@ -303,7 +344,31 @@ and seeding "Airtel Money" would put words in the mouth of a shop that does not
 use it. `GET /payment-methods` returns only **active** ones, and the sale
 command refuses an inactive one, which is what makes doc 01 §5's "when the
 owner permits a debt sale" enforceable — an owner who does not sell on credit
-deactivates `Deni`. Editing the set is the Phase 6 settings screen.
+deactivates `Deni`.
+
+**As built in Phase 6.** The settings screen exists, and with it `POST
+/payment-methods` and `PATCH /payment-methods/{id}`, both owners only. Three
+rules were fixed while building it:
+
+- **`kind` is chosen at creation and never edited.** It is not a label — it
+  decides the arithmetic — so a shop wanting a different kind adds a different
+  method rather than reinterpreting the receipts that already settled against
+  this one.
+- **There is no delete, and there will not be one.**
+  `SalePayment.paymentMethod` is `onDelete: Restrict`, so removing a method
+  that has settled anything would either fail or take a receipt's meaning with
+  it. Deactivating is also the truthful verb: the shop stopped accepting it, it
+  did not stop having accepted it.
+- **Renaming is safe** for the same reason a price edit is: every payment
+  snapshots `methodName` and `methodKind` at the moment it settles, so renaming
+  `Deni` tomorrow does not rewrite what last week's receipts say.
+
+`GET /payment-methods` gained one optional query parameter, `includeInactive`,
+restricted to owners. The settings screen needs it — a screen that cannot see a
+switched-off method is one that cannot switch it back on — and nobody else
+does. Anyone else asking is refused **403** rather than quietly handed the
+active list: a client that believes it is seeing everything and is not would be
+worse than an error.
 
 A debt is a `SalePayment` row carrying a name, not a separate ledger. At most
 one per sale: a bill is owed by one person, and two names on one bill is a
@@ -334,12 +399,19 @@ The implementation may divide or rename tables, but it must preserve these conce
 | Catalogue | products, units, product units, unit relationships, prices, barcodes | Phase 3. `Product`, `ProductUnit` (which carries the price), `UnitRelationship`, `Barcode`. There is no separate global unit table: a unit belongs to its product, because that is where its meaning is |
 | Stock | stock receipts, stock receipt lines, stock movements, current physical stock | Phase 3. `StockReceipt`, `StockReceiptLine`, `StockMovement` (append-only), `PhysicalStock` (one row per branch per packaging) |
 | Sales | sales, sale lines, payments, debts, receipts | Phase 4. `Sale`, `SaleLine`, `SalePayment`. A **debt** is a payment row carrying a debtor name, not a separate ledger — V1 records a name and an amount and nothing more. A **receipt** is a view of a sale rather than a stored record: everything a receipt shows is already snapshotted on the sale, so storing it twice would only create two things that can disagree |
-| Settings | payment methods, business settings | Phase 4. `PaymentMethod`, created with the business and read-only over the API; Phase 6 owns the settings screen |
-| Audit | actor, device, timestamps, idempotency records | `AuditEvent` in Phase 2 (actor, role, device, target, server-clock timestamp), plus `SALE_COMPLETED` in Phase 4. The idempotency record is the `idempotencyKey` column on `Sale`, unique per business — a separate table would be a second place for the same fact to live |
+| Settings | payment methods, business settings | Phase 4. `PaymentMethod`, created with the business. Made writable in Phase 6 — add, rename, reorder, deactivate; never delete, and `kind` is fixed at creation |
+| Audit | actor, device, timestamps, idempotency records | `AuditEvent` in Phase 2 (actor, role, device, target, server-clock timestamp), plus `SALE_COMPLETED` in Phase 4, and five console actions in Phase 6 — `PRODUCT_UPDATED`, `PRODUCT_PRICE_CHANGED`, `BARCODE_ATTACHED`, `PAYMENT_METHOD_CREATED`, `PAYMENT_METHOD_UPDATED`. Each answers a question the owner will actually ask of their own log: why did this price change, who attached this barcode, who switched `Deni` off. Suspending a shop account is deliberately **not** audited — that is a platform-administrator action, and nothing in V1 reads this log on their behalf, so the row would have no reader. The idempotency record is the `idempotencyKey` column on `Sale`, unique per business — a separate table would be a second place for the same fact to live |
 
 ## 10. Mandatory engine tests
 
 Tests must cover product-specific package factors, fixed conversions, cycle rejection, progressive product creation, physical stock breaking, no automatic repacking, single-unit auto-add, repeated scans, different-unit sale lines, price snapshots, conversion snapshots, cash change, mixed payment equality, debt-name capture, **negative-stock handling and the inconsistency it records** (replacing insufficient-stock refusal, per §5), tenant isolation, permission enforcement, and idempotent sale submission.
+
+Phase 6 adds: a price edit that does not rewrite a completed sale, a barcode
+attached to a product created without one, a discontinued product refused by
+both write paths while its stock stays readable, a switched-off payment method
+refused at the backend rather than merely hidden, keyset paging on the sales
+list that never repeats or skips a row, and a suspended shop account refusing a
+token issued before the suspension.
 
 ## References
 

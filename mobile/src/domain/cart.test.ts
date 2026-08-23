@@ -35,6 +35,52 @@ const unpriced: SellableProduct = {
   units: [{ id: 'kipande', name: 'Kipande', priceTzs: null, factorToBase: 1 }],
 };
 
+/** Priced, stocked, and discontinued by the owner from the web console. */
+const discontinued: SellableProduct = {
+  id: 'zamani',
+  name: 'Bidhaa ya Zamani',
+  isActive: false,
+  units: [{ id: 'kipande', name: 'Kipande', priceTzs: 2_000, factorToBase: 1 }],
+};
+
+describe('a product the shop has stopped carrying', () => {
+  it('offers no sellable unit at all, however well priced it is', () => {
+    // The owner discontinued it from the console (Phase 6). The backend
+    // refuses the sale with a 409; catching it here means the seller is told
+    // when they scan rather than when they try to take money.
+    expect(sellableUnits(discontinued)).toEqual([]);
+  });
+
+  it('is refused by name, so the seller knows which item to put down', () => {
+    expect(() => addToCart(emptyCart, discontinued, 'kipande')).toThrow(CartError);
+    expect(() => addToCart(emptyCart, discontinued, 'kipande')).toThrow(
+      /Bidhaa ya Zamani imesitishwa/,
+    );
+  });
+
+  it('leaves the cart exactly as it was', () => {
+    const cart = addToCart(emptyCart, coke, 'piece', 2);
+
+    expect(() => addToCart(cart, discontinued, 'kipande')).toThrow(CartError);
+    expect(cart).toHaveLength(1);
+    expect(cartItemCount(cart)).toBe(2);
+  });
+
+  it('treats a product with no flag at all as still on sale', () => {
+    // Optional so a caller predating the flag still type-checks, and absent
+    // must not mean discontinued: that would empty every cart in the shop.
+    expect(sellableUnits(coke)).toHaveLength(2);
+    expect(addToCart(emptyCart, coke, 'piece')).toHaveLength(1);
+  });
+
+  it('still sells one that is explicitly active', () => {
+    const active: SellableProduct = { ...coke, isActive: true };
+
+    expect(sellableUnits(active)).toHaveLength(2);
+    expect(addToCart(emptyCart, active, 'carton')).toHaveLength(1);
+  });
+});
+
 describe('resolving which unit a scan means', () => {
   it('adds immediately when there is only one sellable unit', () => {
     // Doc 02 §6. A shop that only sells Kipande should never be asked which

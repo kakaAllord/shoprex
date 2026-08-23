@@ -129,7 +129,7 @@ proving a branch from another tenant answers `404` rather than becoming an
 assignment. Adding a DTO to that list without such a test is exactly what the
 pinning exists to make visible.
 
-### API surface (Phases 1–5)
+### API surface (Phases 1–6)
 
 | Endpoint | Auth | Purpose |
 |---|---|---|
@@ -144,6 +144,7 @@ pinning exists to make visible.
 | `GET /api/v1/auth/dev-credentials` | public | Seeded logins for the prefilled form; empty unless development autofill is on |
 | `POST /api/v1/businesses` | platform admin | Onboard a shop and its owner |
 | `GET /api/v1/businesses` | platform admin | Every shop on the platform |
+| `PATCH /api/v1/businesses/:id` | platform admin | Suspend or restore a shop account; takes effect on the next request, deletes nothing |
 | `GET /api/v1/businesses/me` | owner/manager/worker | The caller's own business, scoped by token |
 | `POST /api/v1/branches` | owner | Add a branch to the caller's own business |
 | `GET /api/v1/branches` | owner/manager/worker | Owners see all branches; others see only assigned ones |
@@ -165,11 +166,17 @@ pinning exists to make visible.
 | `GET /api/v1/products/unit-names` | any staff | Unit names this shop already uses, most-used first — feeds the unit picker |
 | `GET /api/v1/products/:id` | any staff | Another tenant's product answers `404`, never `403` |
 | `POST /api/v1/products/:id/units` | SELL or RECEIVE_STOCK | Add a packaging later — progressive enrichment |
+| `PATCH /api/v1/products/:id` | owner | Rename or discontinue. Discontinued is not deleted: it cannot be sold or received, and its history and stock stay |
+| `PATCH /api/v1/products/:id/units/:unitId` | owner | Set a price. Never rewrites a completed sale — every line snapshotted its own |
+| `POST /api/v1/products/:id/barcodes` | owner | Attach a barcode to a product that was typed in without one |
 | `POST /api/v1/branches/:branchId/stock-receipts` | RECEIVE_STOCK | Record a delivery into that branch, all-or-nothing |
 | `GET /api/v1/branches/:branchId/stock` | VIEW_STOCK | What the branch holds, physical packages plus normalized |
 | `GET /api/v1/branches/:branchId/stock/:productId` | VIEW_STOCK | One product, answering `0` rather than `404` when there is none |
-| `GET /api/v1/payment-methods` | any staff | The checkout buttons: this shop's **active** payment methods |
+| `GET /api/v1/payment-methods` | any staff | The checkout buttons: this shop's **active** payment methods. `?includeInactive=true` is owners only |
+| `POST /api/v1/payment-methods` | owner | Add a way of being paid. `kind` is fixed at creation |
+| `PATCH /api/v1/payment-methods/:id` | owner | Rename, reorder, or switch off. There is deliberately no delete |
 | `POST /api/v1/branches/:branchId/sales` | SELL | Complete a sale — one atomic, idempotent command |
+| `GET /api/v1/branches/:branchId/sales` | VIEW_REPORTS | The owner's sales list, newest first, keyset-paged |
 | `GET /api/v1/branches/:branchId/sales/:id` | any staff | One sale, as a receipt |
 
 Every error uses one envelope, shared by both clients:
@@ -227,9 +234,33 @@ The code is a secret: it is returned once at issue, stored only as a SHA-256
 hash, never echoed back, and kept out of the audit log. Both public device
 routes sit in the strict auth rate-limit bucket.
 
+**Suspending a shop account.** `Business.isActive` is enforced everywhere at
+once. A platform administrator flips it with `PATCH /businesses/{id}`; sign-in
+already refused a suspended shop, and `BusinessActiveGuard` refuses the tokens
+issued *before* the suspension, on their very next request — an account that is
+suspended everywhere except in the sessions already open is not suspended. The
+answer is `403`, not `401`: the credentials are fine, and sending somebody back
+to sign in would loop them into the same place. **Nothing is deleted**, so a
+restored shop comes back whole. It costs one primary-key lookup per
+authenticated request that carries a tenant; platform administrators carry none
+and skip it.
+
+**Discontinuing a product.** `Product.isActive` is enforced in one place —
+`StockService.resolveUnit`, which every write path to stock goes through and no
+read path does. A discontinued item cannot be sold or received (`409`), leaves
+the search suggestions, and yet stays fully readable: Stoo still counts what is
+on the shelf, and every past sale still reads the way it did. A **scan still
+finds it**, deliberately, so the phone can say *this was discontinued* rather
+than *unknown code* — which would invite somebody to create a duplicate
+carrying a barcode that is already taken. `mobile/src/domain/cart.ts` refuses it
+at the scan rather than at the payment sheet.
+
 **Permissions.** `SELL`, `RECEIVE_STOCK`, `VIEW_STOCK`, and `VIEW_REPORTS` are
 granted per person by the owner and enforced by `PermissionsGuard` on the
-server. A guarded route reads them from the database on each request rather
+server. `VIEW_REPORTS` got its first consumer in Phase 6: the **sales list**
+needs it, while the single-sale receipt does not — a seller must be able to read
+back the sale they have just rung up, and browsing what the shop has taken all
+day is a management act rather than part of selling. A guarded route reads them from the database on each request rather
 than from the token, so taking a permission away takes effect immediately
 instead of whenever an eight-hour token expires. Owners are never checked
 against these — within their own business they are the authority that grants
@@ -353,6 +384,7 @@ touched. Point them elsewhere with `TEST_DATABASE_URL` if you prefer.
 | `test/sales.e2e-spec.ts` | Phase 4's acceptance check driven as a worker on an enrolled phone: scan, search, add inline, adjust, cash/mixed/debt, receipt, next sale, idempotent retry |
 | `test/sales-isolation.e2e-spec.ts` | Tenant and branch isolation for sales, sale lines, payments, and payment methods |
 | `test/stock-receiving.e2e-spec.ts` | Phase 5's acceptance check as a stock keeper on an enrolled phone: receive a known product, add and receive an unknown one, all-or-nothing deliveries, and every refusal — no permission, wrong branch, revoked phone |
+| `test/web-console.e2e-spec.ts` | Phase 6's acceptance check as all four roles: a platform administrator onboarding, suspending, and restoring a shop; an owner reaching only their own; a manager scoped to assigned branches and refused every owner-only write; product management, payment settings, and the paged sales list |
 
 ## 3. Web (`web/`) — http://localhost:3000
 
@@ -375,8 +407,29 @@ npm run dev
 | `/` | Signpost: redirects to the right console, or to sign-in |
 | `/signup` | Owner self-registration — shop name, email, phone, password |
 | `/login` | Email and password sign-in, prefilled in development |
-| `/admin` | Platform administrator: every shop on the platform |
-| `/owner` | Owner: their business, branches, and adding a branch |
+| `/admin` | Platform administrator: every shop, onboarding, suspend and restore |
+| `/owner` | Overview: counts and doors. Deliberately no money — that is Phase 7 |
+| `/owner/sales` | Sales list for a branch, newest first, keyset-paged. Needs `VIEW_REPORTS` |
+| `/owner/sales/[branchId]/[saleId]` | One sale, as the customer was shown it |
+| `/owner/stock` | What a branch holds, in packages. Negatives shown and counted |
+| `/owner/products` | Prices, barcodes, discontinuing, and adding a product |
+| `/owner/branches` | Branch overview, and adding one |
+| `/owner/staff` | Workers and managers: create, and change what they may do |
+| `/owner/devices` | Enrol a phone (the code is shown **once**) and revoke one |
+| `/owner/payment-methods` | How the shop is paid: add, rename, switch off |
+
+**Managers share the owner console.** They see fewer doors rather than the same
+doors greyed out — a dimmed control teaches somebody that Shoprex is broken,
+while an absent one paired with a written note teaches them who to ask. The
+backend refuses the action either way; the navigation is courtesy, not
+authorization. Every screen has explicit loading, empty, error, and
+permission-denied states, and a `403` is rendered as the shop's own rule in
+amber rather than as a red fault with a pointless retry.
+
+**A backend that cannot answer is not a sign-out.** `currentProfile()` treats
+only `401` and `403` as "signed out"; a rate limit, a timeout, or an unreachable
+API sends the reader to `/login?problem=backend`, which says so plainly rather
+than inviting them to retype a password that was never the problem.
 
 Sign-in posts to a Next route handler, which calls the backend and stores the
 access token in an **httpOnly cookie** — page scripts never see the token, and

@@ -105,6 +105,12 @@ export interface ProductUnit {
 export interface Product {
   id: string;
   name: string;
+  /**
+   * False once the owner has discontinued it from the web console. A search
+   * will not return it, but a **scan still will** — so the seller is told the
+   * shop stopped carrying it rather than that the code is unknown.
+   */
+  isActive: boolean;
   units: ProductUnit[];
   baseUnitId: string;
   barcodes: string[];

@@ -7,9 +7,23 @@ import { fetchBackendHealth } from '../../lib/api/health';
 
 export const dynamic = 'force-dynamic';
 
-export default async function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ problem?: string }>;
+}) {
+  const { problem } = await searchParams;
+
   // Already signed in? Go straight to the console this account belongs to.
-  const profile = await currentProfile();
+  // A backend that cannot answer is not a sign-out, so it is not fatal here
+  // either: fall through and show the form with an explanation.
+  let profile = null;
+
+  try {
+    profile = await currentProfile();
+  } catch {
+    profile = null;
+  }
 
   if (profile) {
     redirect(consolePath(profile.console));
@@ -40,6 +54,12 @@ export default async function LoginPage() {
         <p className="shoprex-alert" role="alert">
           Seva haipatikani · Backend unreachable. Anzisha <code>npm run start:dev</code>{' '}
           ndani ya <code>backend/</code>.
+        </p>
+      ) : problem === 'backend' ? (
+        <p className="shoprex-alert" role="alert">
+          Shoprex haikuweza kuthibitisha kipindi chako kwa sasa — si nenosiri lako.
+          Jaribu tena baada ya muda mfupi. Shoprex could not confirm your session just
+          now. That is not your password — try again shortly.
         </p>
       ) : null}
 

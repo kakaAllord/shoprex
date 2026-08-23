@@ -26,6 +26,8 @@ The mobile app is the operational tool. The web app is the management and visibi
 
 **Shoprex platform administrator** manages the Shoprex platform and shop accounts. This role is separate from the owner of a shop and is not the daily cashier role.
 
+**As built in Phase 6**, that is two things and deliberately only two: onboarding a shop together with its first owner, so an account is never left existing but unusable; and **suspending or restoring** a shop account. Suspending locks the shop immediately in every direction — nobody in it can sign in, no phone can enrol, and the sessions already open stop working on their very next request — while **deleting nothing**, so a restored shop comes back whole. There is deliberately no shop *editing*: renaming a shop or changing what it sells is the owner's business, and a platform screen that could do it would be a screen that could do it by accident.
+
 **Shop owner** owns one or more shops or branches. The owner sees business-wide information, creates or manages branches, creates device enrollments, creates workers, and can delegate manager responsibilities to another person while retaining control of multiple shops.
 
 **Delegated manager** is created by the owner and assigned to a branch or branches. The manager receives credentials and can carry out the permissions granted by the owner. This role is included in the data model but the owner remains the primary business decision-maker.
@@ -136,18 +138,49 @@ than being filtered out of it, marked in amber and named as something to
 recount: it is the shop being told its count is wrong and by how much, and a
 later delivery settles it with nobody doing arithmetic by hand.
 
+**As built in Phase 6 — managing the catalogue from the web.**
+
+The owner can now do the three things the phone deliberately could not: set a
+price on a packaging, attach a barcode to a product that was typed in without
+one, and stop carrying an item altogether. All three are the owner's, not a
+manager's and not a seller's: what the shop carries and what it charges are
+business-wide decisions, while a seller who needs an unknown item on the shelf
+already has the inline creation the phone gives them.
+
+**Changing a price changes what the shop charges from now on and nothing else.**
+Every completed sale snapshotted its own price when it was rung up, so
+yesterday's receipt reads today exactly as the customer saw it. The console says
+so on the screen rather than leaving an owner to wonder, and the change is
+recorded in the audit log with the old price beside the new one — *"why is a
+crate 7,000 now?"* is asked weeks later, and the sale lines cannot answer it.
+
+**Discontinuing is not deleting.** The item leaves the search suggestions and
+can no longer be sold or received, and everything else stays: what is on the
+shelf is still counted in Stoo, every past sale still reads the way it did, and
+bringing it back is one tap. A **scan still finds it**, on purpose — being told
+*this was discontinued* is useful, while being told *unknown code* would invite
+somebody to create a duplicate carrying a barcode that is already taken.
+
 ## 7. Payments, receipts, and reporting
 
 The shop configures the payment methods it accepts, such as Cash, M-Pesa, Airtel Money, Bank, or another local method. V1 supports cash change calculation, mixed payments, and simple debt recording with a debtor name. It does not integrate directly with mobile-money providers in the first release; the seller records the payment method.
 
 Every completed sale creates a receipt containing the actual commercial units sold. The receipt can be viewed, shared using the phone’s normal share function, or skipped so the seller can begin another sale. **Printing is not part of V1** — confirmed by the owner on 2026-08-23, it is a next-version feature. See §8.
 
-**As built in Phase 4.** Every shop starts with three payment methods —
-**Taslimu** (cash), **Pesa ya simu** (mobile money), and **Deni** (debt) — and
-the owner renames, adds to, or switches them off from the web console in Phase
-6. Only active methods appear at checkout, so switching `Deni` off is how an
-owner says their shop does not sell on credit; the backend refuses a debt sale
-after that, not just the button.
+**As built in Phase 4, with the settings screen added in Phase 6.** Every shop
+starts with three payment methods — **Taslimu** (cash), **Pesa ya simu** (mobile
+money), and **Deni** (debt) — and the owner renames them, adds their own, and
+switches them off from the web console. Only active methods appear at checkout,
+so switching `Deni` off is how an owner says their shop does not sell on
+credit; the backend refuses a debt sale after that, not just the button.
+
+A method is **never deleted, only switched off** — one that has settled a sale
+cannot be removed without taking that receipt's meaning with it, and switching
+off is the truthful verb anyway: the shop stopped accepting it, it did not stop
+having accepted it. Its **kind** — cash, mobile money, bank, debt — is chosen
+when it is added and never changed, because the kind decides the arithmetic
+rather than merely labelling it: only cash gives change, and only debt takes a
+name.
 
 **Shoprex never refuses a sale because its own count disagrees.** The person at
 the counter is holding the item, so the shop has it. Selling more than the

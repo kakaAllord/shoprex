@@ -1,6 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { PaymentMethodKind } from '@prisma/client';
-import type { SaleLineView, SalePaymentView, SaleView } from '../sales.service';
+import type {
+  SaleLineView,
+  SalePaymentView,
+  SaleSummaryView,
+  SaleView,
+  SalesPageView,
+} from '../sales.service';
 
 export class SaleLineViewDto implements SaleLineView {
   @ApiProperty({ format: 'uuid' })
@@ -140,4 +146,65 @@ export class SaleViewDto implements SaleView {
       'Set by the backend server clock, never by the device. A phone with the wrong local time must not decide which day a sale is reported under.',
   })
   createdAt!: Date;
+}
+
+/**
+ * One row of the owner's sales list. Not a whole sale: opening a row fetches
+ * the receipt, so a list of fifty does not carry a day's entire trading.
+ */
+export class SaleSummaryViewDto implements SaleSummaryView {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty({ format: 'uuid' })
+  branchId!: string;
+
+  @ApiProperty({ format: 'uuid' })
+  soldById!: string;
+
+  @ApiProperty({ example: 'Juma Hassan' })
+  soldByName!: string;
+
+  @ApiProperty({ example: 24000 })
+  totalTzs!: number;
+
+  @ApiProperty({ example: 1000 })
+  changeTzs!: number;
+
+  @ApiProperty({ example: 0 })
+  debtTzs!: number;
+
+  @ApiProperty({ example: 2, description: 'How many commercial units went over the counter.' })
+  lineCount!: number;
+
+  @ApiProperty({
+    type: [String],
+    example: ['Taslimu'],
+    description:
+      'The names snapshotted onto the sale, so renaming a method later never rewrites this row.',
+  })
+  paymentMethods!: string[];
+
+  @ApiProperty({
+    example: false,
+    description: 'True when a line sold more than the branch’s records held.',
+  })
+  hasStockInconsistency!: boolean;
+
+  @ApiProperty({ format: 'date-time', description: 'The backend server clock.' })
+  createdAt!: Date;
+}
+
+export class SalesPageViewDto implements SalesPageView {
+  @ApiProperty({ type: [SaleSummaryViewDto] })
+  sales!: SaleSummaryViewDto[];
+
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    format: 'uuid',
+    description:
+      'Pass back as `cursor` for the next page. Null when this was the last one. Keyset rather than offset, because a shop keeps selling while somebody reads page two.',
+  })
+  nextCursor!: string | null;
 }

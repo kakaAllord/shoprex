@@ -9,7 +9,17 @@ export const dynamic = 'force-dynamic';
  * console, everyone else goes to sign-in.
  */
 export default async function HomePage() {
-  const profile = await currentProfile();
+  try {
+    const profile = await currentProfile();
 
-  redirect(profile ? consolePath(profile.console) : '/login');
+    redirect(profile ? consolePath(profile.console) : '/login');
+  } catch (error) {
+    // `redirect` works by throwing, so it must be allowed through.
+    if (error && typeof error === 'object' && 'digest' in error) {
+      throw error;
+    }
+
+    // A backend that could not answer is not a sign-out. Say which it was.
+    redirect('/login?problem=backend');
+  }
 }

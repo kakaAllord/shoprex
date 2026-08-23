@@ -41,17 +41,13 @@ export class DevicesController {
   @ApiOperation({
     summary: 'Issue a one-time enrollment code',
     description:
-      'Owners only — not platform administrators. Returns the code **once**; it is stored as a hash and never echoed back afterwards. The branch comes from the worker’s own assignment, so a code cannot bind a phone to a branch the worker does not work in.',
+      'Owners only — not platform administrators. Returns the code **once**; it is stored as a hash and never echoed back afterwards.\n\nThe owner names the **branch** the phone will belong to, and what the handset should be called. A device belongs to a branch rather than to a person (see PROGRESS.md §2a), so anyone assigned to that branch signs in on it afterwards with their own password. A branch in another tenant answers **404**, and no token is written.',
   })
   @ApiBearerAuth(BEARER_AUTH)
   @ApiCreatedResponse({ type: IssuedEnrollmentViewDto })
   @ApiNotFoundResponse({
     type: ErrorResponseDto,
-    description: 'No such active worker in the caller’s business.',
-  })
-  @ApiConflictResponse({
-    type: ErrorResponseDto,
-    description: 'That worker has no branch assignment yet, so there is nothing to bind a phone to.',
+    description: 'No such branch in the caller’s business — the same answer another tenant’s branch gives.',
   })
   @SkipThrottle({ auth: true })
   @Roles(UserRole.OWNER)
@@ -71,17 +67,12 @@ export class DevicesController {
   @ApiOperation({
     summary: 'Redeem an enrollment code',
     description:
-      'Public: the phone has no credentials yet. Mints the `device_id` server-side and binds the installation to one business, one branch, and one worker. An unknown, spent, or expired code all answer **401** identically, so a phone cannot probe which codes exist. A worker who already holds an **active** device is refused with **409** — and that refusal does **not** consume the code, so the worker is not stranded. Subject to the strict auth rate-limit bucket.',
+      'Public: the phone has no credentials yet. Mints the `device_id` server-side and binds the installation to one business and one **branch**. An unknown, spent, expired, or suspended-shop code all answer **401** identically, so a phone cannot probe which codes exist. Subject to the strict auth rate-limit bucket.',
   })
   @ApiOkResponse({ type: EnrolledDeviceViewDto })
   @ApiUnauthorizedResponse({
     type: ErrorResponseDto,
     description: 'Unknown, already used, or expired code — indistinguishable by design.',
-  })
-  @ApiConflictResponse({
-    type: ErrorResponseDto,
-    description:
-      'This worker already has an active device. The owner must revoke it first; the code survives and still works afterwards.',
   })
   @ApiTooManyRequestsResponse({
     type: ErrorResponseDto,
@@ -134,7 +125,7 @@ export class DevicesController {
   @ApiOperation({
     summary: 'Revoke a device',
     description:
-      'Owners only. The phone is refused by the backend on its very next request — an existing session token stops working immediately, it is not merely hidden in the app. Revoking also frees the worker to enroll a replacement handset.',
+      'Owners only. The phone is refused by the backend on its very next request — an existing session token stops working immediately, it is not merely hidden in the app. A revoked handset will not even say who works at its branch.',
   })
   @ApiBearerAuth(BEARER_AUTH)
   @ApiParam({ name: 'id', format: 'uuid' })

@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
@@ -19,9 +28,12 @@ import { RequirePermissions } from '../../common/decorators/permissions.decorato
 import { Roles } from '../../common/decorators/roles.decorator';
 import { BEARER_AUTH } from '../../docs/swagger';
 import { AddProductUnitDto } from './dto/add-product-unit.dto';
+import { AttachBarcodeDto } from './dto/attach-barcode.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { ProductViewDto } from './dto/product-response.dto';
 import { LookupBarcodeDto, SearchProductsDto } from './dto/search-products.dto';
+import { UpdateProductDto } from './dto/update-product.dto';
+import { UpdateProductUnitDto } from './dto/update-product-unit.dto';
 import { PRODUCT_WRITE_PERMISSIONS, ProductView, ProductsService } from './products.service';
 
 @ApiTags('products')
@@ -120,6 +132,95 @@ export class ProductsController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<ProductView> {
     return this.productsService.findOne(user, id);
+  }
+
+  @ApiOperation({
+    summary: 'Rename or discontinue a product',
+    description:
+      'Owners only, and deferred here from Phase 3 on purpose: what the shop carries is a business-wide decision, while a seller who needs an unknown item on the shelf already has `POST /products`.\n\nDiscontinuing **does not delete**. The item leaves the search suggestions and can no longer be sold or received, its history is untouched, and scanning its barcode still finds it so the person holding the phone is told it was discontinued rather than that the code is unknown.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: ProductViewDto })
+  @ApiBadRequestResponse({
+    type: ErrorResponseDto,
+    description: 'Neither `name` nor `isActive` was supplied — there is nothing to change.',
+  })
+  @ApiNotFoundResponse({
+    type: ErrorResponseDto,
+    description: 'No such product in the caller’s business.',
+  })
+  @ApiConflictResponse({
+    type: ErrorResponseDto,
+    description: 'Another product in this business already has that name.',
+  })
+  @Roles(UserRole.OWNER)
+  @Patch(':id')
+  update(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateProductDto,
+  ): Promise<ProductView> {
+    return this.productsService.update(user, id, dto);
+  }
+
+  @ApiOperation({
+    summary: 'Reprice or rename one packaging',
+    description:
+      'Owners only — the price edit Phase 3 deferred to this console. One price per unit across the business.\n\nChanging it changes what the shop charges from now on and **never** what a completed sale says: every sale line snapshotted its own price when it was rung up (doc 02 §6). The change is recorded in the audit log with the old price as well as the new one, because "why is a crate 7,000 now?" is asked weeks later and the sale lines cannot answer it.\n\nThere is deliberately no way to switch a single packaging off or to unset a price: the base unit cannot go without taking the arithmetic with it. Discontinuing the whole product is the supported verb.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiParam({ name: 'unitId', format: 'uuid' })
+  @ApiOkResponse({ type: ProductViewDto })
+  @ApiBadRequestResponse({
+    type: ErrorResponseDto,
+    description: 'Neither `name` nor `priceTzs` was supplied — there is nothing to change.',
+  })
+  @ApiNotFoundResponse({
+    type: ErrorResponseDto,
+    description: 'No such product in the caller’s business, or that unit is not its unit.',
+  })
+  @ApiConflictResponse({
+    type: ErrorResponseDto,
+    description: 'That product already has another unit with that name.',
+  })
+  @Roles(UserRole.OWNER)
+  @Patch(':id/units/:unitId')
+  updateUnit(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('unitId', ParseUUIDPipe) unitId: string,
+    @Body() dto: UpdateProductUnitDto,
+  ): Promise<ProductView> {
+    return this.productsService.updateUnit(user, id, unitId, dto);
+  }
+
+  @ApiOperation({
+    summary: 'Attach a barcode to an existing product',
+    description:
+      'Owners only. Phase 3 could put a code on a product at creation or on a unit as it was added, but a product typed in without one had no way to acquire it later — and a shop that spent its first busy week adding items by name has a drawer full of exactly that problem.\n\nBarcodes stay unique **per tenant**, not globally: two shops may stock the same item, so the clash that matters is one inside this business.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiCreatedResponse({ type: ProductViewDto })
+  @ApiBadRequestResponse({
+    type: ErrorResponseDto,
+    description: 'Not a valid EAN-13 — wrong length, non-digits, or a bad check digit.',
+  })
+  @ApiNotFoundResponse({
+    type: ErrorResponseDto,
+    description: 'No such product in the caller’s business, or that unit is not its unit.',
+  })
+  @ApiConflictResponse({
+    type: ErrorResponseDto,
+    description: 'That barcode already belongs to another product in this business.',
+  })
+  @Roles(UserRole.OWNER)
+  @Post(':id/barcodes')
+  attachBarcode(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AttachBarcodeDto,
+  ): Promise<ProductView> {
+    return this.productsService.attachBarcode(user, id, dto);
   }
 
   @ApiOperation({

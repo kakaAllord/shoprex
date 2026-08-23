@@ -16,15 +16,17 @@ If Part A and Part B ever disagree (e.g. the table says "Complete" but a section
 | 3 | Product, barcode, pricing, and stock engine | Complete | Yes — the named scenario runs as a test, in the engine and over HTTP, see §3 | 2026-08-23 |
 | 4 | React Native mobile selling flow | Complete | Yes — every clause driven end to end, over HTTP as a worker and through the screens, see §4. Revised after owner review, see §4a | 2026-08-23 |
 | 5 | React Native stock receiving and operational visibility | Complete | Yes — both halves of the clause driven by real tests: the backend over HTTP as a stock keeper, the phone through the screens, see §5 | 2026-08-23 |
-| 6 | Next.js owner and admin web app | Not started | — | — |
+| 6 | Next.js owner and admin web app | Complete | Yes — every clause driven end to end over HTTP by all four roles, plus a live console smoke test, see §6 | 2026-08-23 |
 | 7 | Reports and PDF | Not started | — | — |
 | 8 | Pilot hardening and launch | Not started | — | — |
 
 **Status values:** `Not started` / `In progress` / `Blocked` / `Complete`. Only mark `Complete` when the acceptance-check column says `Yes`, backed by a real test run referenced in that phase's section below.
 
-**Active phase:** Phase 6, not yet started. Phase 5 closed on 2026-08-23 with **736** automated tests passing across all three surfaces — see §5. It added no backend route and no table: `POST /branches/{branchId}/stock-receipts` and the two stock reads had shipped in Phase 3, so the phase was the two screens over them plus the suite that proves the contract really supports the journey. Phase 4 closed earlier the same day at 635 after the owner's review (§4/§4a). Mobile stack changed to React Native after Phase 1 closed (§1a); Phase 1 was independently re-verified before any Phase 2 code (§1c).
+**Active phase:** Phase 7, not yet started. Phase 6 closed on 2026-08-23 with **848** automated tests passing across all three surfaces — see §6. It was the first phase since Phase 3 with real backend work in it, exactly as §5 predicted: **seven new routes** and one additive migration. Five of those routes settle debts earlier phases deliberately took out and recorded — the price edit and the barcode attach (§3 known issues 2 and 3), the payment-method writes Phase 4 deferred, and the sales list Phase 4 shipped only the receipt half of. The sixth and seventh, `PATCH /businesses/{id}` and its `BusinessActiveGuard`, were added at the owner's request during the session so a platform administrator can suspend a shop account and have it take effect on the very next request rather than at token expiry. `web/` went from 4 routes to 16 and from 20 tests to 61.
 
-**Exact next action:** begin Phase 6's Next.js owner and admin web app per `docs/v1/03_SHOPREX_V1_IMPLEMENTATION_PHASES.md`, and mark the Phase 6 row `In progress` when that work starts. Nothing blocks it. Phase 6 is the first phase in a while with real backend work in it — payment-method settings need write routes that do not exist yet, and product management needs the price edit and the barcode-attach that §3 and §4 deliberately deferred to it (§3 known issues 2 and 3). Everything Phases 2 and 5 built API-only now needs a screen: workers, managers, devices, enrollments, and the branch stock overview. **Before writing any of it, run the full suite** — 736 is the number it must start from.
+Two pieces of existing behaviour were corrected deliberately, both recorded in §6: `Product.isActive` is now actually enforced (it was honoured in search and nowhere else, so "discontinue" would have been a button that half-worked), and `currentProfile()` no longer treats every backend failure as a sign-out.
+
+**Exact next action:** begin Phase 7's reports and PDF per `docs/v1/03_SHOPREX_V1_IMPLEMENTATION_PHASES.md`, and mark the Phase 7 row `In progress` when that work starts. Nothing blocks it. **Decide local-day boundaries once, in the backend**, and let both the dashboard and the PDF read the same answer — the Phase 6 sales list deliberately has no date filter for exactly this reason. Note also that any report must read the **snapshots** on the sale (`methodName`, `unitPriceTzs`, `productName`) rather than joining back to the live `PaymentMethod` or `ProductUnit` rows, or it will report last month using this month's names and prices. **Before writing any of it, run the full suite** — 848 is the number it must start from.
 
 ---
 
@@ -1197,7 +1199,269 @@ Nothing blocks Phase 6. Open, and each belonging to a later phase:
 - Prices and costs are integers. Do not introduce a float or a Decimal for money without an ADR.
 
 ### §6 — Next.js owner and admin web app
-*(empty until started)*
+
+**Status:** Complete. **Verified:** Yes — every clause of the acceptance check is driven end to end over real HTTP by all four roles, and the two flows with no automated proof (console routing, shop suspension through the running console) were driven by hand against a live backend. **Date:** 2026-08-23.
+
+**The first phase since Phase 3 with real backend work in it**, exactly as §5's handoff note predicted. Seven new routes, one additive migration, and no new table.
+
+#### Acceptance check evidence
+
+Phase 6's acceptance check reads: *Platform administrators can manage shop accounts; owners can manage only their businesses; delegated managers see only authorized branches; web actions use the NestJS API rather than direct database access; the worker/manager/device flows built API-only in Phase 2 now have a working screen.*
+
+| Acceptance criterion | Where it is proven |
+|---|---|
+| Platform admins **manage shop accounts** | `test/web-console.e2e-spec.ts` §1 — onboard a shop and its owner, list every shop, suspend it, restore it, and be told when it is already in the state asked for. Screen at `/admin` |
+| Owners manage **only** their businesses | §2 — `GET /businesses/me` scoped to the token with no id to tamper with; another shop's product, method, branch, and sales list all answer **404, not 403**; the other shop is verifiably untouched afterwards |
+| Managers see **only authorized branches** | §7 — one branch of two listed, stock and sales readable there, `404` for the branch they were not given (inside their own tenant), staff list scoped to their branches, and every owner-only write refused **403** |
+| Web actions use the **API, not the database** | Structural, and stated as such in the suite's header: `web/` has no `DATABASE_URL`, no Prisma dependency, and one module — `web/src/lib/api/` — through which every read and write goes. An e2e test cannot prove this, because a test talking to the database directly would look identical to the app doing so |
+| Phase 2's **worker/manager/device flows have a screen** | §3 drives the contract each screen sits on — staff list, permission change biting immediately on an unexpired token, enrollment code issued once and never echoed, revocation killing the phone on its next request. Screens at `/owner/staff` and `/owner/devices` |
+| **Payment-method settings** (named deliverable) | §5 — add, rename without rewriting settled receipts, switch `Deni` off and watch the backend refuse a debt sale a phone still offers, switch it back on, and the owner-only `includeInactive` list. Screen at `/owner/payment-methods` |
+| **Sales list and detail** (named deliverable) | §6 — newest first, summaries not whole sales, keyset paging that never repeats a row, a cursor from the wrong branch refused, and `VIEW_REPORTS` required for the list but not the receipt. Screens at `/owner/sales` and `/owner/sales/[branchId]/[saleId]` |
+| **Product management** (named deliverable) | §4 — price edit, barcode attach, discontinue, each proved not to rewrite history. Screen at `/owner/products` |
+| **Stock overview**, **branch overview**, **owner dashboard**, **responsive layouts** | Screens at `/owner/stock`, `/owner/branches`, `/owner`; `web/src/styles/globals.css` collapses every table and grid at 560px |
+
+Proven twice, as in Phases 3–5: the contract over real HTTP and real PostgreSQL in `test/web-console.e2e-spec.ts` (51 tests), and the pieces that hold rules in `web/src/**/*.test.ts(x)` (41 new).
+
+#### What was built
+
+**Backend — seven routes, none of which existed before.** Five of them are debts earlier phases deliberately took out and recorded:
+
+| Route | Debt it settles |
+|---|---|
+| `PATCH /products/{id}` | §3 known issue 3 — no endpoint renamed or deactivated a product |
+| `PATCH /products/{id}/units/{unitId}` | §3 known issue 3 — no endpoint edited a price |
+| `POST /products/{id}/barcodes` | §3 known issue 2 — a product typed in without a barcode could never acquire one |
+| `POST /payment-methods`, `PATCH /payment-methods/{id}` | Phase 4 shipped the read only and named this phase as the owner of the write |
+| `GET /branches/{branchId}/sales` | Phase 4 shipped the receipt only and said so in the route's own description |
+| `PATCH /businesses/{id}` | New this phase, at the owner's request during the session — see the decision table |
+
+**`BusinessActiveGuard`.** `Business.isActive` existed since Phase 1 and was checked at every sign-in path, but nothing refused a token minted *before* a suspension. The guard closes that, following device revocation's precedent: refused on the very next request, `403` rather than `401`, and platform administrators skip it because they carry no tenant.
+
+**`Product.isActive` enforced.** It was honoured in product search and nowhere else, so "discontinue" would have been a button that half-worked. It is now checked in `StockService.resolveUnit` — the one place every *write* path to stock goes through and no *read* path does — so a discontinued item cannot be sold or received while its shelf count and its history stay fully readable.
+
+**Web — ten routes.** `/admin` rebuilt; `/owner` rewritten as an overview; and `/owner/{sales,sales/[branchId]/[saleId],stock,products,branches,staff,devices,payment-methods}` new. A `ConsoleShell` frames all of them, `requireConsole()` answers "may this person be here?" once instead of ten times, and one typed module per resource under `web/src/lib/api/` is the only way the app reaches data.
+
+**Mobile — one small change, forced by the backend one.** A discontinued product would otherwise scan cleanly into the cart and fail at the payment sheet. `cart.ts` now refuses it at the scan, by name, exactly as it already refuses an unpriced unit.
+
+#### Decisions made during the build
+
+| Question | Decision | Why |
+|---|---|---|
+| May a **manager** edit prices or payment methods? | **No — owner only** | What the shop carries and what it charges are business-wide, and doc 01 §3 keeps the owner the primary business decision-maker. Consistent with `POST /branches` and `PATCH /users/{id}/permissions`, already owner-only. Relaxing it later is additive; the reverse is not |
+| Can a payment method be **deleted**? | **No, and there will be no route** | `SalePayment.paymentMethod` is `onDelete: Restrict`. Deleting one that settled a sale either fails or takes a receipt's meaning with it. Deactivating is also the truthful verb |
+| Can a method's **kind** be changed? | **No — fixed at creation** | The kind decides the arithmetic, not the label: only `CASH` gives change, only `DEBT` takes a name. A shop wanting a different kind adds a different method rather than reinterpreting receipts that already settled |
+| How does the settings screen see switched-off methods? | `GET /payment-methods?includeInactive=true`, **owners only, 403 for anyone else** | A screen that cannot see a switched-off method cannot switch it back on. Quietly handing a non-owner the active list instead would leave a client believing it saw everything when it did not — worse than an error. A phone must never be handed a method the owner switched off; it would render a button the backend then refuses, which reads as Shoprex being broken rather than as the shop's own rule |
+| Can a **single packaging** be switched off, or a price unset? | **No** | The base unit cannot go without taking the arithmetic with it, and the branch holds physical stock per unit. Discontinuing the whole product is the supported verb; the narrower one needs rules nobody has written, and a half-thought-through control is worse than none |
+| Who may read the **sales list**? | `VIEW_REPORTS`; the receipt stays open to any staff | `VIEW_REPORTS` has existed unused since Phase 2 and this is its natural first consumer. A seller must read back the sale they just rang up; browsing the day's takings is management |
+| Paging on the sales list | **Keyset, not offset**, `limit` 1–100 | A shop keeps selling while somebody reads page two, and an offset would show them a row twice or skip one. A limit outside the range is refused rather than clamped silently |
+| A **date filter** on the sales list? | **No** | Selecting a day and totalling it is Phase 7's dashboard. Local-day arithmetic in two places is how the two come to disagree |
+| Is suspending a shop **audited**? | **No — a server log line instead** | `AuditEvent` is the *owner's* attribution log for their own business, and nothing in V1 reads it on a platform administrator's behalf; the owner of a suspended shop cannot even sign in to look. An audit row with no reader is scaffolding. It also kept the migration to an enum addition |
+| Are product and payment edits audited? | **Yes — five new `AuditAction` values** | Unlike suspension, these have a reader: the owner, on `GET /audit-events`. Each answers a real question — why did this price change, who attached this barcode, who switched `Deni` off. The price line records the **old** price beside the new one, because the sale lines hold what was charged, not when somebody changed the number |
+| Does discontinuing hide a product from a **scan**? | **No — a scan still finds it** | Answering "unknown code" would invite somebody to create a duplicate carrying a barcode that is already taken. Returning it lets the phone say *this was discontinued*, which is the useful sentence |
+| Does the admin console **edit** shops? | **No — onboard, suspend, restore, and nothing else** | Renaming a shop or changing its timezone is the owner's business. A platform screen that could do it is a screen that could do it by accident |
+| Manager in the owner console: dim the controls or remove them? | **Remove them, and say who can** | A dimmed control teaches somebody that Shoprex is broken; an absent one paired with a written note teaches them who to ask. The backend refuses either way — navigation is courtesy, not authorization |
+| `branch-form.tsx` was superseded by a generic `ActionForm` | **Kept, rewritten to use it internally** | It was deleted, then restored: AGENT.md requires asking before deleting anything, and the ask had not happened. It now wraps `ActionForm` rather than duplicating it |
+
+#### Two corrections to existing behaviour, made deliberately
+
+1. **`currentProfile()` treated every failure as a sign-out.** Found while smoke-testing: a rate-limited owner was bounced to `/login` as though their session had expired, and signing in again did not help because nothing was wrong with their session. Only `401` and `403` now mean signed out; anything else routes to `/login?problem=backend`, which says what actually happened rather than inviting somebody to retype a password that was never the problem. Covered by `web/src/lib/api/session.test.ts`.
+2. **Three stale OpenAPI descriptions on `DevicesController`**, flagged at the start of the session and corrected here on the owner's instruction. `issueEnrollment` still said *"the branch comes from the worker's own assignment"*, which stopped being true at §2a; `redeemEnrollment` still documented a `409` for "this worker already has an active device", a refusal that no longer exists in the service at all; and `revoke` still described freeing a worker to enroll a replacement. All three now describe branch-owned devices.
+
+#### Files changed
+
+**New — backend:** `src/common/guards/business-active.guard.ts`, `src/modules/businesses/dto/update-business-status.dto.ts`, `src/modules/payments/dto/{create,update,list}-payment-method*.dto.ts`, `src/modules/products/dto/{update-product,update-product-unit,attach-barcode}.dto.ts`, `src/modules/sales/dto/list-sales.dto.ts`, `prisma/migrations/20260823210000_phase6_audit_actions/`, `test/web-console.e2e-spec.ts`.
+
+**Changed — backend:** `app.module.ts` (guard registration), `prisma/schema.prisma` (five `AuditAction` values; `PaymentMethod` doc comment), `businesses.{service,controller}.ts`, `products.{service,controller}.ts`, `payment-methods.{service,controller}.ts`, `sales.{service,controller}.ts` + `dto/sale-response.dto.ts`, `stock.service.ts` (`resolveUnit` discontinued check), `devices.controller.ts` (stale descriptions), `test/openapi.e2e-spec.ts` (expected list, bearer list, tenancy pins, one new assertion).
+
+**New — web:** `src/lib/action-state.ts`, `src/lib/format.ts` (+ test), `src/lib/api/{guard,request,staff,devices,products,sales,stock,payment-methods}.ts`, `src/app/admin/actions.ts`, seven `src/app/owner/*/page.tsx` routes, `src/components/{console-shell,console-nav,states,action-form,enrollment-form,permission-checks,branch-picker}.tsx`, and six new test files.
+
+**Changed — web:** `src/app/{page,login/page,admin/page,owner/page,owner/actions}.tsx|ts`, `src/components/{console-header,branch-form}.tsx`, `src/lib/api/{session,organization}.ts`, `src/styles/globals.css`.
+
+**Changed — mobile:** `src/domain/cart.ts` (+ test), `src/core/api/apiClient.ts` (`Product.isActive`).
+
+**Changed — docs:** `README.md`, `docs/v1/01` §§3, 6, 7, `docs/v1/02` §§2, 6, 7, 9, 10, `PROGRESS.md`.
+
+#### Commands run and results
+
+The full suite was run **at the start of the session**, before any Phase 6 code, and matched §5's recorded 736 exactly — so Phase 5's stated status was confirmed against reality rather than taken on trust.
+
+| Command | Where | Result |
+|---|---|---|
+| `npm run lint` / `typecheck` / `build` | backend | Passed, clean |
+| `npm test` | backend | Passed — **152/152** unit (unchanged; this phase added no backend domain code) |
+| `npm run test:e2e` | backend | Passed — **430/430** e2e (was 364; +51 web-console, +15 openapi) |
+| `npm run typecheck` / `test` / `build` | web | Passed — **61/61** (was 20), build clean, 16 routes |
+| `npm run typecheck` / `test` | mobile | Passed — **205/205** (was 200; +5 discontinued-product cart tests) |
+| `npx prisma migrate deploy` | backend | Passed — 9 migrations |
+| Live console smoke test | web + backend | Every one of the ten routes `200`, no unhandled error; console routing verified both ways; suspension driven end to end |
+
+**Total: 848 automated tests, all passing** (backend 152 + 430, web 61, mobile 205). Up from 736.
+
+#### Manual testing
+
+Phase 6 adds **eight things a person can now do** that they could not before. **No new mobile build is needed** — the mobile change is JavaScript only, so `npm start` is enough.
+
+---
+
+##### Setup — reaching the starting line
+
+```bash
+cd backend && npm run prisma:deploy && npm run prisma:seed && npm run start:dev
+cd web     && npm run dev
+cd mobile  && npm start        # only for features 6 and 8
+```
+
+Two seeded accounts, both `shoprex12345`: `admin@shoprex.co.tz` (platform admin) and `owner@shoprex.co.tz` (owner of *Duka la Mfano*). **This is the first phase where `/docs` is not needed for setup** — everything below is reachable from the console itself.
+
+##### Feature 1 — A platform administrator runs the shop accounts *(must pass)*
+
+1. Sign in at http://localhost:3000 as **admin@shoprex.co.tz**. → You land on `/admin`, not `/owner`. → Three counts at the top: shops, active, suspended.
+2. → *Duka la Mfano* is listed with its branch and user counts. → *Not a placeholder — those numbers come from the database.*
+3. Fill in **Fungua duka jipya** with a new shop and owner, and submit. → A green line naming the shop and saying its owner can sign in now.
+4. Open a private window and sign in as that new owner. → They land on their own empty `/owner`, with three payment methods already there. → *A shop is never created unable to take money.*
+5. Back in the admin window, click **Simamisha · Suspend** on that shop. → A confirm dialog spelling out what happens. Accept. → The row turns amber and reads *Imesimamishwa*.
+6. In the private window, click anything. → **Locked out immediately, on the session they already had open.** → *This is the point: not at token expiry, now.*
+7. Try to sign in again there. → Refused.
+8. **Rudisha · Restore** it, then sign in again in the private window. → Back in, with the shop's payment methods, branches, and everything else intact. → *Suspension deleted nothing.*
+9. Press **Simamisha** twice in a row on the same shop (restore first). → The second attempt says it is already in that state rather than silently succeeding.
+10. In the owner window, type `/admin` into the address bar. → Bounced to `/owner`. Then as admin, type `/owner`. → Bounced to `/admin`.
+
+##### Feature 2 — An owner sets a price without rewriting history *(must pass)*
+
+Sign in as **owner@shoprex.co.tz** and go to **Bidhaa**.
+
+1. Add a product: name it, give it a unit, **leave the price empty**, and save. → It appears in the list reading *Haijawekwa bei · Not priced*. → *Not "TSh 0" — a price nobody set is not a price of zero.*
+2. Expand it and type a price into **Bei mpya**, then **Weka**. → A green line confirming it, **and saying that old receipts do not change**.
+3. Sell something on the phone at its current price (feature 6 covers getting there), then come back and change that product's price.
+4. Go to **Mauzo**, open that sale's **Risiti**. → The receipt still shows **the old price and the old total**. → *This is the single most important assertion in the phase.*
+5. Go to `/docs`, `GET /audit-events` as the owner. → An entry with both prices in it: `1000 → 1500`. → *"Why is a piece 1,500 now?" is answerable.*
+
+##### Feature 3 — Attaching a barcode to something typed in by hand *(must pass)*
+
+1. In **Bidhaa**, expand a product that has no barcode. → The Namba column reads `—`.
+2. Type an EAN-13 into **Unganisha namba ya bidhaa**, leave the packaging as *Bidhaa yenyewe*, and submit. → It appears in the Namba column.
+3. Try the same barcode on a **different** product. → Refused, naming the clash.
+4. Try `5901234123458` (a real code with the check digit wrong). → Refused as an invalid barcode, not stored. → *A mis-scan must never become a phantom the real item can never match.*
+5. On the phone, scan that barcode. → The product comes up.
+
+##### Feature 4 — Discontinuing something the shop stopped carrying *(must pass)*
+
+1. In **Bidhaa**, expand a product that has stock, and press **Sitisha**. → A confirm spelling out that history is untouched. Accept.
+2. → It disappears from the products list. Search for it by name. → Not found.
+3. Go to **Stoo**. → **It is still there, with its count.** → *Discontinued is not deleted; what is on the shelf is still on the shelf.*
+4. On the phone, search for it in **Mauzo**. → Not offered.
+5. On the phone, **scan** its barcode. → It is found, and adding it is **refused by name** — *imesitishwa*. → *Being told "unknown code" here would invite somebody to create a duplicate carrying a barcode that is already taken.*
+6. On the phone, try to receive it in **Pokea mzigo**. → Also refused.
+7. Back in the console, press **Rudisha**. → It sells and receives again.
+
+##### Feature 5 — Payment-method settings *(must pass)*
+
+Go to **Malipo**.
+
+1. → All three seeded methods, each with its kind and a note that the kind cannot change.
+2. Add **M-Pesa** as mobile money. → It lands **at the end** of the list, not in front of Taslimu.
+3. Try to add a second method also called *m-pesa*. → Refused.
+4. Press **Zima** on **Deni**. → A confirm saying the phone stops offering it *and the backend refuses it*. Accept. → The row turns amber and reads *Imezimwa*.
+5. On the phone, start a sale and open the payment sheet. → **Deni is gone.**
+6. → Deni is still visible **in the console**, greyed, with a *Washa* button. → *A screen that cannot see a switched-off method cannot switch it back on.*
+7. Rename **Taslimu** to something else, then open an old receipt in **Mauzo**. → The receipt still says **Taslimu**. → *Names are snapshotted when a payment settles.*
+8. Press **Washa** on Deni, and sell on credit on the phone. → Works again.
+9. → **There is no delete button anywhere on this screen.** That is deliberate.
+
+##### Feature 6 — Staff and phones finally have a screen *(must pass)*
+
+1. Go to **Wafanyakazi**. → The staff list, with each person's branch and permissions in words, not enum names.
+2. Add a worker with **Kuuza** only. → *No email field* — a worker never uses this console.
+3. Go to **Simu**, choose their branch, name the phone, and **Tengeneza msimbo**. → A large code in a green box, with **write it down, it is never shown again** in as many words.
+4. Reload the page. → **The code is gone.** → *Shoprex stores only its hash; this is not a bug.*
+5. Enrol the phone with it and sign in as that worker. → **Mauzo** only.
+6. Back in **Wafanyakazi**, expand that worker and tick **Kuona stoo**, then save. → On the phone, sign out and in again. → **Stoo** has appeared.
+7. Untick everything and save. → The phone offers no tiles and says why in one line.
+8. In **Simu**, press **Futa** on that phone. → Confirm. → **The phone is refused on its very next tap**, back to sign-in.
+
+##### Feature 7 — Reading the day back *(must pass)*
+
+1. Go to **Mauzo**. → Sales newest first, with who sold, how many lines, the total, and how it was paid.
+2. Click **Risiti** on one. → The commercial units sold, the prices of that day, the change, and any debt.
+3. Make more than fifty sales in one branch (or set `limit` low via the URL: `/owner/sales?limit=…` is not exposed, so make the sales). → **Mauzo ya zamani zaidi** appears; click it. → The next page, with **no row repeated**.
+4. Sell more than the shelf holds, then open **Mauzo**. → That row is amber and says *Stoo ilikuwa pungufu*; the receipt names the shortfall per line.
+5. Go to **Stoo**. → An amber heading counting what needs recounting, and that product's line negative and amber. → *Shown and named, never hidden.*
+6. If the shop has two branches, use the branch chips at the top of **Mauzo** and **Stoo**. → The branch is in the URL, so it can be bookmarked and the back button works.
+
+##### Feature 8 — A delegated manager sees less *(must pass)*
+
+In **Wafanyakazi**, add a manager with **one** branch and only *Kuona stoo* and *Kuona mauzo*, then sign in as them in a private window.
+
+1. → The header says **Meneja**, not Mmiliki.
+2. → The navigation has **no Matawi and no Malipo**. → *Absent, not greyed out.*
+3. → **Mauzo** and **Stoo** show only their branch — no branch chips at all, because there is nothing to choose between.
+4. Type `/owner/payment-methods` into the address bar. → The page loads and says, in a sentence, that only the owner does this. → *Not a crash and not a dead form.*
+5. Go to **Bidhaa**. → Products are readable; there is **no price box, no barcode field, and no Sitisha button**, and a written note saying why.
+6. Go to **Wafanyakazi**. → They see only their branch's staff, and no forms.
+7. Now take **Kuona mauzo** away from them (as the owner) and reload their **Mauzo**. → An **amber** panel naming the missing permission, **with no retry button**. → *A refused permission is the shop's own rule, not a red error, and retrying would keep answering the same way.*
+
+---
+
+##### What should be refused *(must pass)*
+
+| Try this | What should happen |
+|---|---|
+| Sign in as an owner and open `/admin` | Bounced to `/owner`. Then at `/docs`, `GET /businesses` with their token → **403** |
+| A manager pressing anything owner-only | Absent from the screen; and at `/docs` with their token, `PATCH /products/{id}` → **403**, `POST /branches` → **403**, `GET /audit-events` → **403** |
+| A manager opening another branch's stock by URL | **404**, not 403 — inside their own shop. *The answer must not confirm the branch exists* |
+| `GET /payment-methods?includeInactive=true` as a manager or a worker | **403**. Not "quietly the active list" |
+| Stop the backend, then load any console page | An error panel naming what went wrong with a **Jaribu tena**, and **you are not signed out**. Reload after restarting → straight back in |
+| Click around the console fast enough to hit the rate limit | `/login?problem=backend` saying *this is not your password* — **not** a silent sign-out. See known issue 1 |
+| Suspend a shop, then use its owner's still-open session | **403** with the suspension message, immediately |
+
+##### Worth a look, if there is time
+
+- **The whole console on a phone browser.** Every table scrolls inside its own container and the nav scrolls horizontally, but no real thumb has been near it.
+- Whether *Simamisha*, *Sitisha*, *Zima*, and *Futa* read as four clearly different things to somebody who actually speaks Swahili. They are four different destructive-sounding verbs on four different screens.
+- The **products screen with fifty products** — the list caps there (known issue 2) and says so, but the `<details>` accordion has never been tried at that size.
+- Whether the enrollment code is **legible enough to read aloud across a shop**.
+
+##### What has no automated coverage at all
+
+1. **The console in a real browser.** Every web test is Vitest against components and modules; the pages themselves were smoke-tested by hand this session but nothing re-checks them.
+2. **Every server action.** They are thin — read the cookie, call the API, revalidate — but no test drives one.
+3. **The confirm dialogs.** `window.confirm` is never exercised.
+4. **Anything responsive.** No test renders at a phone width.
+5. **The camera**, unchanged from Phase 4 and 5.
+
+#### Known issues / risks
+
+1. **A busy owner can hit the rate limit from one browser.** Every console page load costs an `/auth/me` call plus its data calls, so clicking around briskly reaches `RATE_LIMIT_DEFAULT` (120/min per address). It now fails *honestly* rather than as a fake sign-out, but it is still a refusal the owner did not earn — and a shop office behind one NAT address shares that budget. Phase 8 should either raise the default, exempt authenticated reads, or key the bucket on the user rather than the address. **This was found by smoke-testing, not by a test.**
+2. **The products screen shows at most 50.** `GET /products` caps `limit` at 50, which is right for the phone's suggestion list and tight for a catalogue. The screen says so and points at its search box rather than truncating in silence. A properly paged catalogue route is the real fix and is a backend change this phase did not need.
+3. **`BusinessActiveGuard` costs one lookup per authenticated request that carries a tenant.** Correct, and required by "refused immediately", but it is on the same hot path as `DeviceSessionGuard` and `PermissionsGuard` — a worker's request can now make three small lookups before the handler runs. Worth measuring in Phase 8 before it is worth optimising.
+4. **Nothing reads the audit log except the owner.** Five new actions were added because the owner *can* read them; suspending a shop was deliberately left unaudited because nobody can. If a platform-admin audit view is ever wanted, that decision needs revisiting rather than assuming the rows are there.
+5. **The console has no "sold by whom" filter, no date filter, and no totals.** All three are Phase 7's, deliberately. An owner wanting today's takings still cannot get them from this console.
+6. **`/owner` counts are four separate API calls.** Fine for a pilot; a shop with a large catalogue pays for `fetchProducts` on every visit to the front page just to render a number.
+7. Issues carried from §1–§5 all still stand: the `e2e-env.js` rate-limit bug, npm allow-scripts, no ESLint config in `web/` or `mobile/`, non-interactive `prisma migrate dev`, minimal password policy, in-memory rate limiting, no refresh tokens, one-parent-per-unit, the stale `schema.prisma` header comment, Stoo unpaginated on the phone, the phone still using `branchIds[0]`, and no way to correct a saved delivery.
+
+#### Blocked / awaiting user
+
+Nothing blocks Phase 7. Open, and each needing the owner:
+
+| # | Question | Why it needs the owner | When it starts blocking |
+|---|---|---|---|
+| 1 | **A shared barcode→product catalogue across shops.** Raised by the owner on 2026-08-23 while Phase 6 was being built: every shop that scans an EAN-13 and names the item is producing one observation of a global fact, and those could compound into a catalogue that makes a new shop's first week almost typing-free. **Not built, and not in V1's scope.** It needs three decisions before any of it: whether shops consent to their product names being pooled at all; what threshold makes a suggested name trustworthy (one shop's typo must not become everyone's product name); and whether the *collection* half — recording the observations now so the dataset exists when the feature does — should start in Phase 8 even though the suggestion half is V2 | It is a product and data-ownership decision, not a technical one. The collection half is cheap and additive; the suggestion half is a new feature and a new schema | Never blocks a V1 phase. Decide before Phase 8's pilot, because that is the first real data |
+| 2 | **May one product have two large packagings** (a Carton *and* a Bale)? | Carried from §3, §4, §5. A real shop question | Whenever a pilot shop hits it |
+| 3 | **May `ScannerSheet`, `NewProductSheet`, and `UnitNameField` move out of `mobile/src/features/sale/`** into a shared folder? | Carried from §5 known issue 1. Moving files needs approval; the alternative is two mobile features quietly coupled through a misleading path. **Phase 6 did not touch either flow, so it is still only a risk** | Whenever Phase 7 or 8 changes either flow |
+| 4 | **Should the admin console be able to edit a shop** — rename it, change its timezone? | Deliberately not built: that is the owner's business, and a platform screen that can do it can do it by accident. But an admin fixing a typo for a shop that cannot work out how is a real support scenario | Whenever support needs it |
+| 5 | **Pilot shop workflow** | Decides who the first real onboarding is for | Phase 8 |
+| 6 | Confirm only regenerable build output may be cleared during disk cleanup | Carried from §1, §3, §4, §5; never answered | Whenever disk tightens again |
+
+#### Handoff notes
+
+- **`requireConsole()` in `web/src/lib/api/guard.ts` is the one answer to "may this person be here?"** It is not the authorization — the backend is — and every new page should use it rather than re-implementing the redirect dance.
+- **`currentProfile()` returns null only for 401 and 403.** Do not widen that back to "any error": that is the bug this phase fixed, and it turned every backend hiccup into a false sign-out.
+- **`StockService.resolveUnit` is where a product-level rule belongs.** Every write path to stock goes through it and no read path does, which is what let "discontinued" be enforced once and stay invisible to Stoo and to receipts.
+- **`test/web-console.e2e-spec.ts` calls only routes the console calls, in the order it calls them** — §5's template. When Phase 7 builds a screen over the report routes, that is the shape of test to write.
+- **`test/openapi.e2e-spec.ts` now pins Phase 6's six write DTOs** in the "never accepts a tenant id" guard. Adding a write route means adding its DTO there, or the walk starts passing vacuously.
+- **Phase 7 has to decide day boundaries once.** The sales list deliberately has no date filter for exactly this reason; put local-day arithmetic in the backend, in one place, and let both the dashboard and the PDF read it.
+- **Payment method names and product prices are snapshotted at the moment they are used.** Any new report must read the snapshot on the sale, never join back to the live `PaymentMethod` or `ProductUnit` row, or it will report last month using this month's names.
+- Prices and costs are integers. Do not introduce a float or a Decimal for money without an ADR.
 
 ### §7 — Reports and PDF
 *(empty until started)*

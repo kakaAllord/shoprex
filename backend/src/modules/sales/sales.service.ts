@@ -28,6 +28,38 @@ import { PaymentMethodsService } from '../payments/payment-methods.service';
 import { ResolvedUnit, StockService } from '../stock/stock.service';
 import { actorFrom } from '../users/users.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
+import { ListSalesDto, SALES_PAGE_DEFAULT } from './dto/list-sales.dto';
+
+/**
+ * One row of the owner's sales list.
+ *
+ * Deliberately not a whole `SaleView`. A list is read to find a sale, not to
+ * re-read every sale — sending each one's lines and payments would put a
+ * day's entire trading through the wire to render fifty rows of a table.
+ * Opening a row fetches the receipt.
+ */
+export interface SaleSummaryView {
+  id: string;
+  branchId: string;
+  soldById: string;
+  soldByName: string;
+  totalTzs: number;
+  changeTzs: number;
+  debtTzs: number;
+  /** How many commercial units went over the counter, as lines. */
+  lineCount: number;
+  /** The snapshotted method names, so a renamed method never rewrites a row. */
+  paymentMethods: string[];
+  /** True when a line sold more than the branch's records held. */
+  hasStockInconsistency: boolean;
+  createdAt: Date;
+}
+
+export interface SalesPageView {
+  sales: SaleSummaryView[];
+  /** Pass back as `cursor` for the next page. Null when this was the last. */
+  nextCursor: string | null;
+}
 
 export interface SaleLineView {
   productId: string;
@@ -259,6 +291,78 @@ export class SalesService {
    * sales list and detail screen, and Phase 4 only needs to show the seller
    * the receipt for the sale they just rang up.
    */
+  /**
+   * The sales a branch has rung up, newest first.
+   *
+   * Needs `VIEW_REPORTS`; the owner always may. This is the first consumer of
+   * that permission, and it is the right shape for it: a seller needs the
+   * receipt for the sale they have just made — which `findOne` still gives
+   * anybody — but browsing what the shop has taken all day is a management
+   * act, not part of selling.
+   *
+   * There is no date filter here on purpose. Selecting a day and totalling it
+   * is Phase 7's dashboard, and doing local-day arithmetic in two places is
+   * how the two come to disagree.
+   */
+  async list(
+    principal: AuthenticatedUser,
+    branchId: string,
+    query: ListSalesDto,
+  ): Promise<SalesPageView> {
+    const businessId = requireBusiness(principal);
+
+    await requireBranchAccess(this.prisma, principal, branchId);
+
+    const limit = query.limit ?? SALES_PAGE_DEFAULT;
+
+    if (query.cursor) {
+      // A cursor is a client-supplied id and gets the same treatment as any
+      // other: one from another branch or another tenant is simply not found,
+      // rather than silently paging from the top of this branch.
+      const anchor = await this.prisma.sale.findFirst({
+        where: { id: query.cursor, businessId, branchId },
+        select: { id: true },
+      });
+
+      if (!anchor) {
+        throw new NotFoundException('Sale not found');
+      }
+    }
+
+    // One more than asked for, so "is there another page?" is answered by
+    // what came back rather than by a second count query.
+    const rows = await this.prisma.sale.findMany({
+      where: { businessId, branchId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+      include: {
+        soldBy: { select: { fullName: true } },
+        lines: { select: { shortfallNormalized: true } },
+        payments: { select: { methodName: true } },
+      },
+    });
+
+    const page = rows.slice(0, limit);
+
+    return {
+      sales: page.map((sale) => ({
+        id: sale.id,
+        branchId: sale.branchId,
+        soldById: sale.soldById,
+        soldByName: sale.soldBy.fullName,
+        totalTzs: sale.totalTzs,
+        changeTzs: sale.changeTzs,
+        debtTzs: sale.debtTzs,
+        lineCount: sale.lines.length,
+        paymentMethods: sale.payments.map((payment) => payment.methodName),
+        hasStockInconsistency: sale.lines.some((line) => line.shortfallNormalized > 0),
+        createdAt: sale.createdAt,
+      })),
+      nextCursor: rows.length > limit ? (page[page.length - 1]?.id ?? null) : null,
+    };
+  }
+
   async findOne(
     principal: AuthenticatedUser,
     branchId: string,

@@ -36,6 +36,14 @@ export interface SellableProduct {
   id: string;
   name: string;
   units: SellableUnit[];
+  /**
+   * False once the owner has discontinued it from the web console (Phase 6).
+   *
+   * Optional so a caller that predates the flag still type-checks, and treated
+   * as true when absent: a product Shoprex knows nothing about is one the shop
+   * is presumably still selling.
+   */
+  isActive?: boolean;
 }
 
 export interface CartLine {
@@ -59,8 +67,19 @@ export const emptyCart: Cart = [];
  * A unit with no price is not sellable — doc 01 §5 lets a product exist before
  * it is fully configured, but a price is the one thing a sale cannot invent,
  * and the backend refuses it too.
+ *
+ * A **discontinued** product has none at all. The owner said the shop no
+ * longer carries it, and the backend refuses the sale (409) — but a scan still
+ * finds it, deliberately, so the person holding the phone is told it was
+ * discontinued rather than that the code is unknown. Catching it here means
+ * they are told at the moment they scan rather than at the moment they try to
+ * take money.
  */
 export function sellableUnits(product: SellableProduct): SellableUnit[] {
+  if (product.isActive === false) {
+    return [];
+  }
+
   return product.units.filter((unit) => unit.priceTzs !== null);
 }
 
@@ -110,6 +129,12 @@ export function addToCart(
 ): Cart {
   if (!Number.isInteger(quantity) || quantity < 1) {
     throw new CartError('A quantity must be a whole number of at least 1');
+  }
+
+  if (product.isActive === false) {
+    throw new CartError(
+      `${product.name} imesitishwa · ${product.name} has been discontinued and cannot be sold`,
+    );
   }
 
   const unit = product.units.find((candidate) => candidate.id === unitId);

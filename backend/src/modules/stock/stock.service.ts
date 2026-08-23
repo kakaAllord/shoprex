@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -419,6 +420,17 @@ export class StockService {
 
     if (!product) {
       throw new NotFoundException('Product not found');
+    }
+
+    // Every write path to stock comes through here - receiving, selling, and
+    // the bare issue - and only the write paths do. That is why the
+    // discontinued check belongs here rather than in three places: an owner who
+    // stopped carrying an item says so once, and Stoo can still show what is
+    // left on the shelf while a receipt can still be read back.
+    if (!product.isActive) {
+      throw new ConflictException(
+        product.name + ' imesitishwa · That item has been discontinued and can no longer be sold or received',
+      );
     }
 
     const unit = product.units.find((candidate) => candidate.id === unitId);

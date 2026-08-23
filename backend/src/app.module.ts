@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { BusinessActiveGuard } from './common/guards/business-active.guard';
 import { DeviceSessionGuard } from './common/guards/device-session.guard';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
@@ -72,8 +73,11 @@ import { HealthModule } from './modules/health/health.module';
     // Every route is authenticated unless marked @Public(), and role checks
     // run on the server for every request.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
-    // Between the two on purpose: a revoked device must be turned away before
-    // any role check gets the chance to let it through.
+    // First thing after identity: a suspended shop is turned away before any
+    // of its people's roles or devices are even considered.
+    { provide: APP_GUARD, useClass: BusinessActiveGuard },
+    // Then the handset: a revoked device must be turned away before any role
+    // check gets the chance to let it through.
     { provide: APP_GUARD, useClass: DeviceSessionGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     // Last: role decides whether you may reach the route at all, permission

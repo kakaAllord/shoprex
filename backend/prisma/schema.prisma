@@ -245,6 +245,14 @@ enum AuditAction {
   STOCK_RECEIVED
   SALE_COMPLETED
   STOCK_INCONSISTENCY
+  // Phase 6 — the owner's management console. Each of these answers a
+  // question the owner will actually ask of their own audit log: why did this
+  // price change, who attached this barcode, who switched Deni off.
+  PRODUCT_UPDATED
+  PRODUCT_PRICE_CHANGED
+  BARCODE_ATTACHED
+  PAYMENT_METHOD_CREATED
+  PAYMENT_METHOD_UPDATED
 }
 
 /// Who did what, from which device, and when. `createdAt` is the backend
@@ -519,7 +527,12 @@ enum PaymentMethodKind {
 }
 
 /// How a shop accepts money. Seeded with a small default set when a business
-/// is created; the settings screen that edits them is Phase 6's.
+/// is created, and edited from Phase 6's settings screen.
+///
+/// A method is never deleted, only deactivated: `SalePayment.paymentMethod` is
+/// `onDelete: Restrict`, so a method that has settled anything cannot go
+/// without taking a receipt's meaning with it. Deactivating is also the honest
+/// verb — the shop stopped accepting it, it did not stop having accepted it.
 model PaymentMethod {
   id         String            @id @default(uuid())
   businessId String            @map("business_id")

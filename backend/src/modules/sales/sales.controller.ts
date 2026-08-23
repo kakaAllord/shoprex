@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
@@ -6,6 +6,7 @@ import {
   ApiCreatedResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
+  ApiForbiddenResponse,
   ApiOperation,
   ApiParam,
   ApiTags,
@@ -19,8 +20,9 @@ import { RequirePermissions } from '../../common/decorators/permissions.decorato
 import { Roles } from '../../common/decorators/roles.decorator';
 import { BEARER_AUTH } from '../../docs/swagger';
 import { CreateSaleDto } from './dto/create-sale.dto';
-import { SaleViewDto } from './dto/sale-response.dto';
-import { SaleView, SalesService } from './sales.service';
+import { ListSalesDto } from './dto/list-sales.dto';
+import { SaleViewDto, SalesPageViewDto } from './dto/sale-response.dto';
+import { SaleView, SalesPageView, SalesService } from './sales.service';
 
 /**
  * The branch is a path segment, not a body field — a sale belongs to a branch,
@@ -68,9 +70,35 @@ export class SalesController {
   }
 
   @ApiOperation({
+    summary: 'Sales in a branch, newest first',
+    description:
+      'Needs `VIEW_REPORTS`; the owner always may. The owner-facing sales list — a seller needs the receipt for the sale they have just made, which the route below gives anybody, but browsing what the shop has taken all day is a management act rather than part of selling.\n\nEach row is a summary, not a whole sale: opening one fetches the receipt. Paging is **keyset**, not offset — pass the `nextCursor` you were given, because a shop keeps selling while somebody reads page two and an offset would show them a row twice or skip one.\n\nThere is deliberately no date filter. Selecting a day and totalling it is Phase 7’s dashboard, and doing local-day arithmetic in two places is how the two come to disagree.',
+  })
+  @ApiParam({ name: 'branchId', format: 'uuid' })
+  @ApiOkResponse({ type: SalesPageViewDto })
+  @ApiForbiddenResponse({
+    type: ErrorResponseDto,
+    description: 'The caller does not hold `VIEW_REPORTS`.',
+  })
+  @ApiNotFoundResponse({
+    type: ErrorResponseDto,
+    description:
+      'No such branch for this caller, or a `cursor` that is not a sale in this branch.',
+  })
+  @RequirePermissions(UserPermission.VIEW_REPORTS)
+  @Get()
+  list(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @Query() query: ListSalesDto,
+  ): Promise<SalesPageView> {
+    return this.sales.list(user, branchId, query);
+  }
+
+  @ApiOperation({
     summary: 'One sale, as a receipt',
     description:
-      'What the customer was shown, kept as it was shown. A sale in another tenant — or in a branch this caller is not assigned to — answers **404, not 403**.\n\nThe sales *list* is deliberately absent: the owner-facing sales list and detail screen belong to Phase 6, and the selling flow only needs the receipt for the sale just rung up.',
+      'What the customer was shown, kept as it was shown. A sale in another tenant — or in a branch this caller is not assigned to — answers **404, not 403**.\n\nNo permission beyond branch access is required here, unlike the list above: the seller who has just rung a sale up must be able to read back its receipt.',
   })
   @ApiParam({ name: 'branchId', format: 'uuid' })
   @ApiParam({ name: 'id', format: 'uuid' })
