@@ -61,6 +61,8 @@ model Business {
   stockReceipts    StockReceipt[]
   stockMovements   StockMovement[]
   physicalStock    PhysicalStock[]
+  paymentMethods   PaymentMethod[]
+  sales            Sale[]
 
   @@map("businesses")
 }
@@ -81,6 +83,7 @@ model Branch {
   stockReceipts    StockReceipt[]
   stockMovements   StockMovement[]
   physicalStock    PhysicalStock[]
+  sales            Sale[]
 
   @@unique([businessId, name])
   @@index([businessId])
@@ -114,13 +117,12 @@ model User {
 
   business          Business?               @relation(fields: [businessId], references: [id], onDelete: Cascade)
   assignments       BranchAssignment[]
-  devices           Device[]                @relation("DeviceHolder")
   revokedDevices    Device[]                @relation("DeviceRevoker")
-  enrollmentTokens  DeviceEnrollmentToken[] @relation("EnrollmentSubject")
   issuedEnrollments DeviceEnrollmentToken[] @relation("EnrollmentIssuer")
   auditEvents       AuditEvent[]
   stockReceipts     StockReceipt[]
   stockMovements    StockMovement[]
+  sales             Sale[]
 
   @@index([businessId])
   @@map("users")
@@ -162,18 +164,23 @@ enum DeviceStatus {
   REVOKED
 }
 
-/// One Android installation, bound to one business, one branch, and one
-/// worker. `id` is the server-minted `device_id`: Android exposes no reliable
-/// permanent hardware identifier, so Shoprex mints its own and the app stores
-/// it. A client never supplies it at enrollment.
+/// One Android installation, bound to one business and one **branch**.
+/// `id` is the server-minted `device_id`: Android exposes no reliable permanent
+/// hardware identifier, so Shoprex mints its own and the app stores it. A client
+/// never supplies it at enrollment.
+///
+/// **A device belongs to a branch, not to a person.** Any worker assigned to
+/// that branch signs in on it with their own password, so a flat battery or a
+/// phone left at home does not stop a shift. Because the handset no longer
+/// identifies anybody, sign-in does: the worker picks their name and proves it.
+/// Changed 2026-08-23 — see PROGRESS.md §2a, which supersedes §2's one-device-
+/// per-worker rule.
 model Device {
   id          String       @id @default(uuid())
   businessId  String       @map("business_id")
   branchId    String       @map("branch_id")
-  /// The one worker this device belongs to. A second active device for the
-  /// same worker is refused until this one is revoked.
-  userId      String       @map("user_id")
-  /// The worker's own name, so the owner can see whose phone it is.
+  /// What the owner calls this handset — "Simu ya kaunta", "Simu ya Neema".
+  /// A label for the owner's own list, never an identity or a credential.
   name        String
   status      DeviceStatus @default(ACTIVE)
   /// Set by the backend at enrollment and at each device sign-in.
@@ -185,13 +192,11 @@ model Device {
 
   business   Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
   branch     Branch                 @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  user       User                   @relation("DeviceHolder", fields: [userId], references: [id], onDelete: Cascade)
   revokedBy  User?                  @relation("DeviceRevoker", fields: [revokedById], references: [id], onDelete: SetNull)
   enrollment DeviceEnrollmentToken?
 
   @@index([businessId])
-  @@index([branchId])
-  @@index([userId, status])
+  @@index([branchId, status])
   @@map("devices")
 }
 
@@ -201,10 +206,12 @@ model Device {
 model DeviceEnrollmentToken {
   id         String    @id @default(uuid())
   businessId String    @map("business_id")
+  /// The branch this code will bind a phone to, named by the owner when the
+  /// code is issued. A device belongs to a branch, so this is the whole
+  /// binding — there is no worker to derive it from any more.
   branchId   String    @map("branch_id")
-  /// The worker this token enrolls. Derived from the worker's own branch
-  /// assignment, never from the request body.
-  userId     String    @map("user_id")
+  /// What the phone will be called once it is enrolled.
+  deviceName String    @map("device_name")
   issuedById String    @map("issued_by_id")
   tokenHash  String    @unique @map("token_hash")
   expiresAt  DateTime  @map("expires_at")
@@ -216,12 +223,11 @@ model DeviceEnrollmentToken {
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   branch   Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  user     User     @relation("EnrollmentSubject", fields: [userId], references: [id], onDelete: Cascade)
   issuedBy User     @relation("EnrollmentIssuer", fields: [issuedById], references: [id], onDelete: Cascade)
   device   Device?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
 
   @@index([businessId])
-  @@index([userId])
+  @@index([branchId])
   @@map("device_enrollment_tokens")
 }
 
@@ -237,6 +243,8 @@ enum AuditAction {
   PRODUCT_CREATED
   PRODUCT_UNIT_ADDED
   STOCK_RECEIVED
+  SALE_COMPLETED
+  STOCK_INCONSISTENCY
 }
 
 /// Who did what, from which device, and when. `createdAt` is the backend
@@ -294,6 +302,7 @@ model Product {
   receiptLines  StockReceiptLine[]
   movements     StockMovement[]
   physicalStock PhysicalStock[]
+  saleLines     SaleLine[]
 
   @@unique([businessId, name])
   @@index([businessId])
@@ -322,6 +331,7 @@ model ProductUnit {
   receiptLines  StockReceiptLine[]
   movements     StockMovement[]
   physicalStock PhysicalStock[]
+  saleLines     SaleLine[]
 
   @@unique([productId, name])
   @@index([productId])
@@ -462,6 +472,12 @@ model StockMovement {
 /// What one branch physically holds, per packaging. This is the "5 Cartons +
 /// 5 Pieces" view: a row per unit, never rolled up, because the engine must
 /// not invent a Carton out of six loose Pieces.
+///
+/// `quantity` may be **negative**. That is the negative-stock policy, not a
+/// bug: a sale is never refused for want of a record, so a shop that sold five
+/// with two counted sits at -3 until someone recounts or receives more. There
+/// is deliberately no check constraint keeping it at zero — flooring it would
+/// throw away the very number that says how wrong the count is.
 model PhysicalStock {
   id            String   @id @default(uuid())
   businessId    String   @map("business_id")
@@ -479,4 +495,148 @@ model PhysicalStock {
   @@unique([branchId, productUnitId])
   @@index([branchId, productId])
   @@map("physical_stock")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 — sales, payments, and debt.
+//
+// A completed sale is history. Every line snapshots the name, unit, price,
+// conversion, and normalized quantity it was sold at, so a later price change
+// or repackaging cannot rewrite what a customer actually paid — doc 02 §6.
+// The stock it removed is written by the same transaction, through
+// StockService.issueStock, so a sale and its movements are never half done.
+// ---------------------------------------------------------------------------
+
+/// What kind of settlement a method is, whatever the shop calls it. The kind
+/// drives the arithmetic: only CASH takes an amount received and gives change,
+/// and only DEBT carries a debtor name.
+enum PaymentMethodKind {
+  CASH
+  MOBILE_MONEY
+  BANK
+  DEBT
+  OTHER
+}
+
+/// How a shop accepts money. Seeded with a small default set when a business
+/// is created; the settings screen that edits them is Phase 6's.
+model PaymentMethod {
+  id         String            @id @default(uuid())
+  businessId String            @map("business_id")
+  name       String
+  kind       PaymentMethodKind
+  /// Only active methods are offered at checkout. Deactivating Deni is how an
+  /// owner stops their shop selling on credit.
+  isActive   Boolean           @default(true) @map("is_active")
+  /// The order they appear in on the payment sheet, cash first.
+  sortOrder  Int               @default(0) @map("sort_order")
+  createdAt  DateTime          @default(now()) @map("created_at")
+  updatedAt  DateTime          @updatedAt @map("updated_at")
+
+  business Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  payments SalePayment[]
+
+  @@unique([businessId, name])
+  @@index([businessId])
+  @@map("payment_methods")
+}
+
+/// One completed sale. There is no draft and no status: a cart lives on the
+/// phone, and a row here means money changed hands. V1 has no returns,
+/// refunds, or corrections, so nothing ever amends one.
+model Sale {
+  id             String   @id @default(uuid())
+  businessId     String   @map("business_id")
+  branchId       String   @map("branch_id")
+  soldById       String   @map("sold_by_id")
+  /// The phone it was rung up on. Null when an owner sells from the web.
+  deviceId       String?  @map("device_id")
+  totalTzs       Int      @map("total_tzs")
+  /// Cash handed back across the whole sale, kept so a receipt reprints the
+  /// same numbers the customer saw.
+  changeTzs      Int      @default(0) @map("change_tzs")
+  /// What walked out unpaid, recorded against a name on the payment row.
+  debtTzs        Int      @default(0) @map("debt_tzs")
+  /// Supplied by the client, unique within the business. A retried request
+  /// returns the sale the first attempt created rather than making a second.
+  idempotencyKey String   @map("idempotency_key")
+  /// The backend server clock. No client ever supplies this: a phone with the
+  /// wrong local time must not decide which day a sale is reported under.
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  business Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  branch   Branch        @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  soldBy   User          @relation(fields: [soldById], references: [id], onDelete: Cascade)
+  lines    SaleLine[]
+  payments SalePayment[]
+
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, createdAt])
+  @@index([branchId, createdAt])
+  @@map("sales")
+}
+
+/// One commercial unit sold. `2 Cartons` and `5 Pieces` of the same product
+/// stay two lines even though their normalized quantities could be combined —
+/// that is what was handed over the counter. Doc 02 §6.
+model SaleLine {
+  id                  String @id @default(uuid())
+  saleId              String @map("sale_id")
+  productId           String @map("product_id")
+  productUnitId       String @map("product_unit_id")
+  /// Snapshots. The product may be renamed, repriced, or repackaged later;
+  /// this line must still read the way the receipt did.
+  productName         String @map("product_name")
+  unitName            String @map("unit_name")
+  quantity            Int
+  unitPriceTzs        Int    @map("unit_price_tzs")
+  lineTotalTzs        Int    @map("line_total_tzs")
+  /// What one of that unit was worth in base units at the time.
+  conversionFactor    Int    @map("conversion_factor")
+  /// The stock this line removed, in base units.
+  normalizedQuantity  Int    @map("normalized_quantity")
+  /// How much of this line the records could not cover, in base units.
+  ///
+  /// Zero on an ordinary sale. Above zero means the count was already wrong
+  /// before this sale — the seller was holding the item, so the shop had it —
+  /// and the branch balance has gone negative by this much. Kept on the line
+  /// rather than only in the audit log so a receipt and a sales report can
+  /// both tell the truth without cross-referencing anything.
+  shortfallNormalized Int    @default(0) @map("shortfall_normalized")
+
+  sale        Sale        @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product     Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productUnit ProductUnit @relation(fields: [productUnitId], references: [id], onDelete: Cascade)
+
+  @@index([saleId])
+  @@index([productId])
+  @@map("sale_lines")
+}
+
+/// How one sale was settled. Several rows mean a mixed payment, and their
+/// amounts always add up to the sale total exactly — doc 02 §7.
+///
+/// A debt is one of these, not a separate ledger: V1 records a free-text name
+/// and an amount, and deliberately creates no customer account, no history,
+/// and no collection workflow.
+model SalePayment {
+  id              String            @id @default(uuid())
+  saleId          String            @map("sale_id")
+  paymentMethodId String            @map("payment_method_id")
+  /// Snapshots, so renaming or deleting a method never rewrites a receipt.
+  methodName      String            @map("method_name")
+  methodKind      PaymentMethodKind @map("method_kind")
+  amountTzs       Int               @map("amount_tzs")
+  /// Cash only: what the customer physically handed over, and what came back.
+  cashReceivedTzs Int?              @map("cash_received_tzs")
+  changeTzs       Int?              @map("change_tzs")
+  /// Debt only. A name written down, nothing more.
+  debtorName      String?           @map("debtor_name")
+
+  sale          Sale          @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  paymentMethod PaymentMethod @relation(fields: [paymentMethodId], references: [id], onDelete: Restrict)
+
+  @@unique([saleId, paymentMethodId])
+  @@index([saleId])
+  @@map("sale_payments")
 }

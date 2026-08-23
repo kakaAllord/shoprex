@@ -9,6 +9,7 @@
  */
 import { PrismaClient, UserRole } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { createDefaultPaymentMethods } from '../src/modules/payments/payment-methods.defaults';
 
 const prisma = new PrismaClient();
 
@@ -63,6 +64,11 @@ async function main(): Promise<void> {
     update: {},
     create: { businessId: business.id, name: 'Tawi Kuu' },
   });
+
+  // The seeded business is created directly here rather than through the
+  // signup service, so it needs the same default payment methods a real shop
+  // gets — otherwise the development shop cannot check out.
+  await createDefaultPaymentMethods(prisma, business.id);
 
   await prisma.appMetadata.upsert({
     where: { key: 'seeded_at' },

@@ -1,45 +1,68 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { DeviceStatus, PrismaClient, UserPermission, UserRole } from '@prisma/client';
+import { DeviceStatus, PrismaClient, UserPermission } from '@prisma/client';
 import request from 'supertest';
 import { AllExceptionsFilter } from '../src/common/filters/all-exceptions.filter';
+import { hashEnrollmentCode } from '../src/domain/enrollment-token';
 
 /**
- * Phase 2's acceptance check, end to end: an owner creates a branch, a worker,
- * and an enrollment code; a phone redeems it; the worker signs in on that
- * phone; the owner sees the actor and the device on the action; the owner
- * revokes the phone and it is refused immediately.
+ * Device enrollment, shared sign-in, and revocation.
  *
- * Also the three rules the owner confirmed on 2026-08-22 and PROGRESS §2
- * records: a code cannot be reused, cannot be used after expiry, and a worker
- * who already holds an active device is refused a second one — without the
- * refusal burning the code.
+ * **A device belongs to a branch, not to a worker** (owner's decision,
+ * 2026-08-23 — PROGRESS.md §2a). The owner enrols a handset to a branch, and
+ * anyone who works at that branch signs in on it with their own password. A
+ * flat battery no longer stops a shift.
+ *
+ * Because the handset no longer identifies anybody, sign-in has to: the caller
+ * names the person and proves it with that person's password. The tests below
+ * are mostly about the boundary that replaced "one device, one worker" — the
+ * **branch**.
  */
-describe('Device enrollment, sign-in, and revocation (e2e)', () => {
+describe('Device enrollment, shared sign-in, and revocation (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaClient;
 
   const password = 'shoprex12345';
   const api = () => request(app.getHttpServer());
+  const authed = (token: string) => ({ Authorization: `Bearer ${token}` });
 
   let ownerToken: string;
-  let branchId: string;
-  let workerId: string;
+  let ownerId: string;
+  let counterBranchId: string;
+  let storeBranchId: string;
 
-  const issueCode = async (userId: string, expiresInMinutes?: number) => {
+  let jumaId: string;
+  let neemaId: string;
+  let storeWorkerId: string;
+
+  const issueCode = async (branchId: string, deviceName: string, expiresInMinutes?: number) => {
     const response = await api()
       .post('/api/v1/devices/enrollments')
-      .set('Authorization', `Bearer ${ownerToken}`)
-      .send({ userId, ...(expiresInMinutes ? { expiresInMinutes } : {}) })
+      .set(authed(ownerToken))
+      .send({ branchId, deviceName, ...(expiresInMinutes ? { expiresInMinutes } : {}) })
       .expect(201);
 
-    return response.body as { enrollmentId: string; code: string; expiresAt: string };
+    return response.body as {
+      enrollmentId: string;
+      code: string;
+      expiresAt: string;
+      deviceName: string;
+      branchId: string;
+      branchName: string;
+    };
   };
 
-  const createWorker = async (fullName: string): Promise<string> => {
+  const enrol = async (branchId: string, deviceName: string): Promise<string> => {
+    const { code } = await issueCode(branchId, deviceName);
+    const response = await api().post('/api/v1/devices/enroll').send({ code }).expect(200);
+
+    return response.body.deviceId as string;
+  };
+
+  const createWorker = async (fullName: string, branchId: string): Promise<string> => {
     const response = await api()
       .post('/api/v1/users/workers')
-      .set('Authorization', `Bearer ${ownerToken}`)
+      .set(authed(ownerToken))
       .send({ fullName, password, branchId, permissions: [UserPermission.SELL] })
       .expect(201);
 
@@ -49,10 +72,9 @@ describe('Device enrollment, sign-in, and revocation (e2e)', () => {
   beforeAll(async () => {
     // Enrollment redemption and device sign-in both sit in the strict auth
     // rate-limit bucket, which backend/.env sets to 10 a minute — correct in
-    // production and far too low for a suite that enrolls a dozen phones. The
+    // production and far too low for a suite that enrols a dozen phones. The
     // limits are read when the module is built, so they are raised before the
-    // import, the same way rate-limit.e2e-spec.ts lowers them. That the bucket
-    // really does cover these two routes is proven there, not here.
+    // import, the same way rate-limit.e2e-spec.ts lowers them.
     process.env.RATE_LIMIT_AUTH = '10000';
     process.env.RATE_LIMIT_DEFAULT = '10000';
 
@@ -72,9 +94,13 @@ describe('Device enrollment, sign-in, and revocation (e2e)', () => {
     app.useGlobalFilters(new AllExceptionsFilter());
     await app.init();
 
+    await prisma.salePayment.deleteMany();
+    await prisma.saleLine.deleteMany();
+    await prisma.sale.deleteMany();
     await prisma.auditEvent.deleteMany();
     await prisma.deviceEnrollmentToken.deleteMany();
     await prisma.device.deleteMany();
+    await prisma.paymentMethod.deleteMany();
     await prisma.branchAssignment.deleteMany();
     await prisma.branch.deleteMany();
     await prisma.user.deleteMany();
@@ -92,15 +118,27 @@ describe('Device enrollment, sign-in, and revocation (e2e)', () => {
       .expect(201);
 
     ownerToken = signup.body.accessToken;
+    ownerId = signup.body.user.id;
 
-    const branch = await api()
-      .post('/api/v1/branches')
-      .set('Authorization', `Bearer ${ownerToken}`)
-      .send({ name: 'Tawi la Kariakoo' })
-      .expect(201);
+    counterBranchId = (
+      await api()
+        .post('/api/v1/branches')
+        .set(authed(ownerToken))
+        .send({ name: 'Tawi la Kariakoo' })
+        .expect(201)
+    ).body.id;
 
-    branchId = branch.body.id;
-    workerId = await createWorker('Juma Hassan');
+    storeBranchId = (
+      await api()
+        .post('/api/v1/branches')
+        .set(authed(ownerToken))
+        .send({ name: 'Ghala' })
+        .expect(201)
+    ).body.id;
+
+    jumaId = await createWorker('Juma Hassan', counterBranchId);
+    neemaId = await createWorker('Neema Said', counterBranchId);
+    storeWorkerId = await createWorker('Baraka Ghala', storeBranchId);
   });
 
   afterAll(async () => {
@@ -108,61 +146,89 @@ describe('Device enrollment, sign-in, and revocation (e2e)', () => {
     await app.close();
   });
 
-  describe('the owner issues a one-time code', () => {
+  describe('the owner issues a one-time code for a branch', () => {
     it('returns the code exactly once, in readable groups', async () => {
-      const issued = await issueCode(workerId);
+      const issued = await issueCode(counterBranchId, 'Simu ya kaunta');
 
       expect(issued.code).toMatch(/^[2-9A-Z]{4}-[2-9A-Z]{4}-[2-9A-Z]{4}$/);
-      expect(issued.enrollmentId).toBeTruthy();
+      expect(issued.branchName).toBe('Tawi la Kariakoo');
+      expect(issued.deviceName).toBe('Simu ya kaunta');
     });
 
     it('stores only a hash — the code itself is never in the database', async () => {
-      const issued = await issueCode(workerId);
+      const issued = await issueCode(counterBranchId, 'Simu ya pili');
+
       const row = await prisma.deviceEnrollmentToken.findUnique({
         where: { id: issued.enrollmentId },
       });
 
-      expect(row?.tokenHash).toHaveLength(64);
+      // The canonical form is the grouped one the owner reads aloud, dashes
+      // and all — normalizeEnrollmentCode returns that, so it is what is hashed.
+      expect(row?.tokenHash).toBe(hashEnrollmentCode(issued.code));
       expect(row?.tokenHash).not.toContain(issued.code.replace(/-/g, ''));
     });
 
     it('keeps the code out of the audit log', async () => {
-      const issued = await issueCode(workerId);
-      const events = await prisma.auditEvent.findMany({
-        where: { action: 'DEVICE_ENROLLMENT_ISSUED' },
-      });
+      const issued = await issueCode(counterBranchId, 'Simu ya tatu');
 
-      expect(events.length).toBeGreaterThan(0);
+      const events = (
+        await api().get('/api/v1/audit-events').set(authed(ownerToken)).expect(200)
+      ).body as Array<{ summary: string }>;
+
       expect(
         events.some((event) => event.summary.includes(issued.code.replace(/-/g, ''))),
       ).toBe(false);
     });
 
-    it('takes the branch from the worker’s own assignment, not the request', async () => {
-      const issued = await issueCode(workerId);
-      const row = await prisma.deviceEnrollmentToken.findUnique({
-        where: { id: issued.enrollmentId },
-      });
+    it('names the branch in the body, and checks it belongs to this business', async () => {
+      // The branch is what a code binds now, so it *is* in the request body —
+      // one of the few DTOs allowed to name a branch. The pinning in
+      // openapi.e2e-spec.ts requires a cross-tenant test to back that, and
+      // this is it: another owner's branch answers 404, never 403.
+      const other = await api()
+        .post('/api/v1/auth/signup')
+        .send({
+          shopName: 'Duka Jingine',
+          email: 'owner@jingine.co.tz',
+          phone: '0712000019',
+          password,
+          fullName: 'Mmiliki Jingine',
+        })
+        .expect(201);
 
-      expect(row?.branchId).toBe(branchId);
-    });
+      const theirBranch = (
+        await api()
+          .post('/api/v1/branches')
+          .set(authed(other.body.accessToken))
+          .send({ name: 'Tawi Lao' })
+          .expect(201)
+      ).body.id;
 
-    it('refuses a branchId supplied in the body', async () => {
       await api()
         .post('/api/v1/devices/enrollments')
-        .set('Authorization', `Bearer ${ownerToken}`)
-        .send({ userId: workerId, branchId })
+        .set(authed(ownerToken))
+        .send({ branchId: theirBranch, deviceName: 'Simu ya wizi' })
+        .expect(404);
+
+      expect(await prisma.deviceEnrollmentToken.count({ where: { branchId: theirBranch } })).toBe(
+        0,
+      );
+    });
+
+    it('no longer accepts a userId — a code binds a phone, not a person', async () => {
+      await api()
+        .post('/api/v1/devices/enrollments')
+        .set(authed(ownerToken))
+        .send({ branchId: counterBranchId, deviceName: 'Simu', userId: jumaId })
         .expect(400);
     });
 
-    it('refuses to issue for a user who is not a worker in this business', async () => {
-      const owner = await prisma.user.findFirst({ where: { role: UserRole.OWNER } });
-
+    it('needs a name for the phone, so the owner can tell handsets apart', async () => {
       await api()
         .post('/api/v1/devices/enrollments')
-        .set('Authorization', `Bearer ${ownerToken}`)
-        .send({ userId: owner!.id })
-        .expect(404);
+        .set(authed(ownerToken))
+        .send({ branchId: counterBranchId })
+        .expect(400);
     });
   });
 
@@ -171,11 +237,10 @@ describe('Device enrollment, sign-in, and revocation (e2e)', () => {
     let deviceId: string;
 
     beforeAll(async () => {
-      await prisma.deviceEnrollmentToken.deleteMany();
-      ({ code } = await issueCode(workerId));
+      ({ code } = await issueCode(counterBranchId, 'Simu ya kaunta 1'));
     });
 
-    it('binds the installation to one business, branch, and worker', async () => {
+    it('binds the installation to one business and one branch', async () => {
       const response = await api()
         .post('/api/v1/devices/enroll')
         .send({ code })
@@ -184,35 +249,39 @@ describe('Device enrollment, sign-in, and revocation (e2e)', () => {
       deviceId = response.body.deviceId;
 
       expect(response.body).toMatchObject({
-        deviceName: 'Juma Hassan',
-        branchId,
-        workerId,
-        workerName: 'Juma Hassan',
+        deviceName: 'Simu ya kaunta 1',
         businessName: 'Duka la Kariakoo',
+        branchId: counterBranchId,
+        branchName: 'Tawi la Kariakoo',
       });
     });
 
+    it('names nobody — the phone is not a person', async () => {
+      const response = await api()
+        .get(`/api/v1/devices/${deviceId}`)
+        .set(authed(ownerToken))
+        .expect(200);
+
+      expect(Object.keys(response.body)).not.toContain('userId');
+      expect(Object.keys(response.body)).not.toContain('workerName');
+      expect(response.body.branchName).toBe('Tawi la Kariakoo');
+    });
+
     it('mints the device id server-side rather than accepting one', async () => {
+      const issued = await issueCode(counterBranchId, 'Simu nyingine');
+
       expect(deviceId).toMatch(/^[0-9a-f-]{36}$/);
 
       await api()
         .post('/api/v1/devices/enroll')
-        .send({ code, deviceId: 'a-device-id-i-chose-myself' })
+        .send({ code: issued.code, deviceId: 'a-device-id-i-chose-myself' })
         .expect(400);
-    });
-
-    it('names the device after the worker, so the owner knows whose phone it is', async () => {
-      const device = await prisma.device.findUnique({ where: { id: deviceId } });
-
-      expect(device?.name).toBe('Juma Hassan');
-      expect(device?.status).toBe(DeviceStatus.ACTIVE);
     });
 
     it('stamps enrollment with the backend clock', async () => {
       const device = await prisma.device.findUnique({ where: { id: deviceId } });
 
-      expect(device?.createdAt).toBeInstanceOf(Date);
-      expect(device?.lastSeenAt).toBeInstanceOf(Date);
+      expect(Math.abs(Date.now() - (device?.createdAt.getTime() ?? 0))).toBeLessThan(60_000);
     });
 
     it('refuses the same code a second time', async () => {
@@ -220,8 +289,7 @@ describe('Device enrollment, sign-in, and revocation (e2e)', () => {
     });
 
     it('forgives lower case and missing dashes on a code that is still valid', async () => {
-      const second = await createWorker('Asha Kimaro');
-      const issued = await issueCode(second);
+      const issued = await issueCode(counterBranchId, 'Simu ya herufi ndogo');
 
       await api()
         .post('/api/v1/devices/enroll')
@@ -240,12 +308,8 @@ describe('Device enrollment, sign-in, and revocation (e2e)', () => {
 
   describe('a code cannot be used after it expires', () => {
     it('refuses one whose expiry has passed', async () => {
-      const worker = await createWorker('Salma Ally');
-      const issued = await issueCode(worker, 5);
+      const issued = await issueCode(counterBranchId, 'Simu ya muda', 5);
 
-      // The expiry is a stored backend timestamp, so the test moves the stored
-      // value rather than the client's clock — a device clock is exactly what
-      // must not be able to influence this.
       await prisma.deviceEnrollmentToken.update({
         where: { id: issued.enrollmentId },
         data: { expiresAt: new Date(Date.now() - 1_000) },
@@ -255,251 +319,227 @@ describe('Device enrollment, sign-in, and revocation (e2e)', () => {
     });
 
     it('does not create a device when the code has expired', async () => {
-      const salma = await prisma.user.findFirst({ where: { fullName: 'Salma Ally' } });
-      const devices = await prisma.device.findMany({ where: { userId: salma!.id } });
-
-      expect(devices).toEqual([]);
-    });
-  });
-
-  describe('re-enrolling a worker who already holds a device', () => {
-    let worker: string;
-    let firstDeviceId: string;
-    let secondCode: string;
-
-    beforeAll(async () => {
-      worker = await createWorker('Neema Mushi');
-
-      const first = await issueCode(worker);
-      const enrolled = await api()
-        .post('/api/v1/devices/enroll')
-        .send({ code: first.code })
-        .expect(200);
-
-      firstDeviceId = enrolled.body.deviceId;
-      secondCode = (await issueCode(worker)).code;
-    });
-
-    it('refuses the second enrollment while the first device is active', async () => {
-      const response = await api()
-        .post('/api/v1/devices/enroll')
-        .send({ code: secondCode })
-        .expect(409);
-
-      // The owner has to know *which* phone to revoke, and the worker standing
-      // in the shop has to know why it failed.
-      expect(response.body.message).toContain('Neema Mushi');
-    });
-
-    it('does not consume the code when it refuses, so the worker is not stranded', async () => {
-      const row = await prisma.deviceEnrollmentToken.findFirst({
-        where: { userId: worker, usedAt: null },
+      const spent = await prisma.deviceEnrollmentToken.findFirst({
+        where: { deviceName: 'Simu ya muda' },
       });
 
-      expect(row).not.toBeNull();
-    });
-
-    it('does not silently move the worker to the new phone', async () => {
-      const devices = await prisma.device.findMany({ where: { userId: worker } });
-
-      expect(devices).toHaveLength(1);
-      expect(devices[0].id).toBe(firstDeviceId);
-    });
-
-    it('accepts the same code once the owner revokes the first device', async () => {
-      await api()
-        .post(`/api/v1/devices/${firstDeviceId}/revoke`)
-        .set('Authorization', `Bearer ${ownerToken}`)
-        .expect(200);
-
-      const response = await api()
-        .post('/api/v1/devices/enroll')
-        .send({ code: secondCode })
-        .expect(200);
-
-      expect(response.body.deviceId).not.toBe(firstDeviceId);
-    });
-
-    it('leaves the revoked device in place rather than deleting the history', async () => {
-      const first = await prisma.device.findUnique({ where: { id: firstDeviceId } });
-
-      expect(first?.status).toBe(DeviceStatus.REVOKED);
-      expect(first?.revokedAt).toBeInstanceOf(Date);
+      expect(spent?.usedAt).toBeNull();
+      expect(spent?.deviceId).toBeNull();
     });
   });
 
-  describe('the worker signs in on their enrolled phone', () => {
+  describe('a branch may hold several phones', () => {
+    it('enrols a second handset at the same branch without complaint', async () => {
+      // The old model refused this: one worker, one device. A shop with a
+      // counter phone and a back-room phone is ordinary, and now it works.
+      const first = await enrol(counterBranchId, 'Simu A');
+      const second = await enrol(counterBranchId, 'Simu B');
+
+      expect(first).not.toBe(second);
+
+      const devices = await prisma.device.findMany({
+        where: { branchId: counterBranchId, status: DeviceStatus.ACTIVE },
+      });
+
+      expect(devices.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe('several people share one phone', () => {
     let deviceId: string;
-    let deviceToken: string;
-    let workerOnPhone: string;
 
     beforeAll(async () => {
-      workerOnPhone = await createWorker('Baraka Joseph');
-      const issued = await issueCode(workerOnPhone);
-      const enrolled = await api()
-        .post('/api/v1/devices/enroll')
-        .send({ code: issued.code })
-        .expect(200);
-
-      deviceId = enrolled.body.deviceId;
+      deviceId = await enrol(counterBranchId, 'Simu ya kushirikiana');
     });
 
-    it('signs in with the device id and the worker’s password — no code', async () => {
+    it('offers the people who work at that branch, and the owner', async () => {
+      const response = await api()
+        .get(`/api/v1/auth/device/${deviceId}/people`)
+        .expect(200);
+
+      const names = (response.body as Array<{ fullName: string }>).map((p) => p.fullName);
+
+      expect(names).toContain('Juma Hassan');
+      expect(names).toContain('Neema Said');
+      // The owner reaches every branch of their own business.
+      expect(names).toContain('Mmiliki Kariakoo');
+      // Somebody who works at the other branch does not appear.
+      expect(names).not.toContain('Baraka Ghala');
+    });
+
+    it('gives out names and ids and nothing else', async () => {
+      const response = await api()
+        .get(`/api/v1/auth/device/${deviceId}/people`)
+        .expect(200);
+
+      for (const person of response.body as Array<Record<string, unknown>>) {
+        expect(Object.keys(person).sort()).toEqual(['fullName', 'userId']);
+      }
+    });
+
+    it('lets the first worker sign in with their own password', async () => {
       const response = await api()
         .post('/api/v1/auth/device/login')
-        .send({ deviceId, password })
+        .send({ deviceId, userId: jumaId, password })
         .expect(200);
 
-      deviceToken = response.body.accessToken;
-
-      expect(response.body.user).toMatchObject({
-        id: workerOnPhone,
-        role: UserRole.WORKER,
-        email: null,
-        deviceId,
-        branchIds: [branchId],
-        permissions: [UserPermission.SELL],
-      });
+      expect(response.body.user.id).toBe(jumaId);
+      expect(response.body.user.deviceId).toBe(deviceId);
     });
 
-    it('carries the device on the session, so later actions are attributable', async () => {
+    it('lets a second worker sign in on the very same phone', async () => {
+      // The whole point of the change: Juma's phone is flat, so Neema picks up
+      // the counter handset and carries on.
       const response = await api()
-        .get('/api/v1/auth/me')
-        .set('Authorization', `Bearer ${deviceToken}`)
+        .post('/api/v1/auth/device/login')
+        .send({ deviceId, userId: neemaId, password })
         .expect(200);
 
-      expect(response.body.deviceId).toBe(deviceId);
+      expect(response.body.user.id).toBe(neemaId);
+      expect(response.body.user.fullName).toBe('Neema Said');
     });
 
-    it('rejects a wrong password with the same answer as an unknown device', async () => {
+    it('lets the owner sign in at the counter too', async () => {
+      const response = await api()
+        .post('/api/v1/auth/device/login')
+        .send({ deviceId, userId: ownerId, password })
+        .expect(200);
+
+      expect(response.body.user.role).toBe('OWNER');
+    });
+
+    it('refuses somebody who works at a different branch', async () => {
+      // Same business, correct password, wrong counter. The branch is the
+      // boundary that replaced one-device-one-worker, so it has to hold.
       await api()
         .post('/api/v1/auth/device/login')
-        .send({ deviceId, password: 'wrong-password-here' })
+        .send({ deviceId, userId: storeWorkerId, password })
+        .expect(401);
+    });
+
+    it('refuses a wrong password with the same answer as an unknown person', async () => {
+      const wrongPassword = await api()
+        .post('/api/v1/auth/device/login')
+        .send({ deviceId, userId: jumaId, password: 'not-the-password' })
         .expect(401);
 
-      await api()
+      const unknownPerson = await api()
         .post('/api/v1/auth/device/login')
-        .send({ deviceId: '00000000-0000-4000-8000-000000000000', password })
+        .send({
+          deviceId,
+          userId: '00000000-0000-4000-8000-000000000000',
+          password,
+        })
         .expect(401);
+
+      expect(unknownPerson.body.message).toBe(wrongPassword.body.message);
     });
 
     it('updates last seen from the backend clock at sign-in', async () => {
-      const before = await prisma.device.findUnique({ where: { id: deviceId } });
+      await api()
+        .post('/api/v1/auth/device/login')
+        .send({ deviceId, userId: jumaId, password })
+        .expect(200);
 
-      await api().post('/api/v1/auth/device/login').send({ deviceId, password }).expect(200);
+      const device = await prisma.device.findUnique({ where: { id: deviceId } });
 
-      const after = await prisma.device.findUnique({ where: { id: deviceId } });
-
-      expect(after!.lastSeenAt!.getTime()).toBeGreaterThanOrEqual(
-        before!.lastSeenAt!.getTime(),
-      );
-    });
-
-    describe('and then the owner revokes it', () => {
-      it('refuses the device on its very next request, with the token unchanged', async () => {
-        // The token is still cryptographically valid and unexpired: this is
-        // the point. Revocation must bite at the backend, not wait for expiry
-        // and not rely on the app hiding a screen.
-        await api()
-          .get('/api/v1/auth/me')
-          .set('Authorization', `Bearer ${deviceToken}`)
-          .expect(200);
-
-        await api()
-          .post(`/api/v1/devices/${deviceId}/revoke`)
-          .set('Authorization', `Bearer ${ownerToken}`)
-          .expect(200);
-
-        await api()
-          .get('/api/v1/auth/me')
-          .set('Authorization', `Bearer ${deviceToken}`)
-          .expect(401);
-      });
-
-      it('refuses a fresh sign-in on the revoked device too', async () => {
-        await api().post('/api/v1/auth/device/login').send({ deviceId, password }).expect(401);
-      });
-
-      it('refuses to revoke the same device twice', async () => {
-        await api()
-          .post(`/api/v1/devices/${deviceId}/revoke`)
-          .set('Authorization', `Bearer ${ownerToken}`)
-          .expect(409);
-      });
-
-      it('leaves the owner’s own session working', async () => {
-        await api()
-          .get('/api/v1/auth/me')
-          .set('Authorization', `Bearer ${ownerToken}`)
-          .expect(200);
-      });
+      expect(Math.abs(Date.now() - (device?.lastSeenAt?.getTime() ?? 0))).toBeLessThan(60_000);
     });
   });
 
-  describe('the owner sees the actor and device on a test action', () => {
-    it('attributes the device sign-in to both the worker and their phone', async () => {
-      const response = await api()
-        .get('/api/v1/audit-events')
-        .set('Authorization', `Bearer ${ownerToken}`)
+  describe('the owner revokes a phone', () => {
+    let deviceId: string;
+    let token: string;
+
+    beforeAll(async () => {
+      deviceId = await enrol(counterBranchId, 'Simu ya kufutwa');
+      token = (
+        await api()
+          .post('/api/v1/auth/device/login')
+          .send({ deviceId, userId: jumaId, password })
+          .expect(200)
+      ).body.accessToken;
+
+      await api()
+        .post(`/api/v1/devices/${deviceId}/revoke`)
+        .set(authed(ownerToken))
+        .expect(200);
+    });
+
+    it('refuses the device on its very next request, with the token unchanged', async () => {
+      await api().get('/api/v1/auth/me').set(authed(token)).expect(401);
+    });
+
+    it('refuses a fresh sign-in on the revoked device too', async () => {
+      await api()
+        .post('/api/v1/auth/device/login')
+        .send({ deviceId, userId: jumaId, password })
+        .expect(401);
+    });
+
+    it('will not even say who works there any more', async () => {
+      await api().get(`/api/v1/auth/device/${deviceId}/people`).expect(401);
+    });
+
+    it('refuses to revoke the same device twice', async () => {
+      await api()
+        .post(`/api/v1/devices/${deviceId}/revoke`)
+        .set(authed(ownerToken))
+        .expect(409);
+    });
+
+    it('leaves the revoked device in place rather than deleting the history', async () => {
+      const device = await prisma.device.findUnique({ where: { id: deviceId } });
+
+      expect(device?.status).toBe(DeviceStatus.REVOKED);
+      expect(device?.revokedById).toBe(ownerId);
+    });
+
+    it('leaves the other phones at that branch working', async () => {
+      // Revoking one handset must not strand the branch.
+      const other = await enrol(counterBranchId, 'Simu iliyobaki');
+
+      await api()
+        .post('/api/v1/auth/device/login')
+        .send({ deviceId: other, userId: neemaId, password })
+        .expect(200);
+    });
+  });
+
+  describe('the owner sees who did what, from which phone', () => {
+    it('attributes a sign-in to both the person and the handset', async () => {
+      const deviceId = await enrol(counterBranchId, 'Simu ya ukaguzi');
+
+      await api()
+        .post('/api/v1/auth/device/login')
+        .send({ deviceId, userId: neemaId, password })
         .expect(200);
 
-      const signIn = response.body.find(
-        (event: { action: string }) => event.action === 'DEVICE_SIGNED_IN',
+      const events = (
+        await api().get('/api/v1/audit-events').set(authed(ownerToken)).expect(200)
+      ).body as Array<{ action: string; deviceId: string | null; actorUserId: string | null }>;
+
+      const signIn = events.find(
+        (event) => event.action === 'DEVICE_SIGNED_IN' && event.deviceId === deviceId,
       );
 
-      expect(signIn).toBeDefined();
-      expect(signIn.actorUserId).toBeTruthy();
-      expect(signIn.actorName).toBeTruthy();
-      expect(signIn.actorRole).toBe(UserRole.WORKER);
-      expect(signIn.deviceId).toBeTruthy();
-      expect(signIn.createdAt).toBeTruthy();
+      expect(signIn?.actorUserId).toBe(neemaId);
     });
 
-    it('records the whole Phase 2 flow, not just the sign-in', async () => {
-      const response = await api()
-        .get('/api/v1/audit-events')
-        .set('Authorization', `Bearer ${ownerToken}`)
-        .query({ limit: 200 })
-        .expect(200);
+    it('records the enrollment against the owner who issued the code', async () => {
+      // Nobody has signed in on a freshly enrolled phone, and the device no
+      // longer stands for a person — so the actor is whoever issued the code.
+      const deviceId = await enrol(counterBranchId, 'Simu ya kuandikishwa');
 
-      const actions = new Set(response.body.map((event: { action: string }) => event.action));
+      const events = (
+        await api().get('/api/v1/audit-events').set(authed(ownerToken)).expect(200)
+      ).body as Array<{ action: string; targetId: string; actorUserId: string | null }>;
 
-      expect(actions).toContain('WORKER_CREATED');
-      expect(actions).toContain('DEVICE_ENROLLMENT_ISSUED');
-      expect(actions).toContain('DEVICE_ENROLLED');
-      expect(actions).toContain('DEVICE_SIGNED_IN');
-      expect(actions).toContain('DEVICE_REVOKED');
-    });
-
-    it('names the owner as the actor on a revocation, with no device', async () => {
-      const response = await api()
-        .get('/api/v1/audit-events')
-        .set('Authorization', `Bearer ${ownerToken}`)
-        .query({ limit: 200 })
-        .expect(200);
-
-      const revoked = response.body.find(
-        (event: { action: string }) => event.action === 'DEVICE_REVOKED',
+      const enrolled = events.find(
+        (event) => event.action === 'DEVICE_ENROLLED' && event.targetId === deviceId,
       );
 
-      expect(revoked.actorRole).toBe(UserRole.OWNER);
-      expect(revoked.deviceId).toBeNull();
-      expect(revoked.targetType).toBe('Device');
-    });
-
-    it('can be narrowed to one device', async () => {
-      const device = await prisma.device.findFirst({ where: { status: DeviceStatus.ACTIVE } });
-
-      const response = await api()
-        .get('/api/v1/audit-events')
-        .set('Authorization', `Bearer ${ownerToken}`)
-        .query({ deviceId: device!.id })
-        .expect(200);
-
-      expect(response.body.length).toBeGreaterThan(0);
-      expect(
-        response.body.every((event: { deviceId: string }) => event.deviceId === device!.id),
-      ).toBe(true);
+      expect(enrolled?.actorUserId).toBe(ownerId);
     });
   });
 });

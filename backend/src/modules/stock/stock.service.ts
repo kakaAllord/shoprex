@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -10,13 +9,12 @@ import {
   Prisma,
   StockDirection,
   StockMovementReason,
-  UserRole,
 } from '@prisma/client';
+import { requireBranchAccess } from '../../common/branch-access';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { requireBusiness } from '../../common/tenancy';
 import { PrismaService } from '../../database/prisma.service';
 import {
-  InsufficientStockError,
   PhysicalState,
   describeState,
   issue,
@@ -34,6 +32,17 @@ export interface StockUnitView {
   unitName: string;
   quantity: number;
   factorToBase: number;
+}
+
+/** What a removal did, and what it revealed about the count. */
+export interface IssuedStock {
+  stock: ProductStockView;
+  /**
+   * How much the records could not cover, in base units. Zero on an ordinary
+   * sale; above zero means the count was already wrong and the branch balance
+   * has gone negative by this much.
+   */
+  shortfallNormalized: number;
 }
 
 export interface ProductStockView {
@@ -74,6 +83,19 @@ export interface StockChange {
   quantity: number;
 }
 
+/**
+ * A product, one of its units, and the unit graph they belong to — looked up
+ * once and passed around, so a caller that already needs the price and the
+ * conversion factor does not query for them a second time.
+ */
+export type ResolvedUnit = Awaited<ReturnType<StockService['resolveUnit']>>;
+
+/**
+ * Either the Prisma client or a transaction handle. Every read below accepts
+ * one, so a caller running inside its own transaction sees its own writes.
+ */
+type StockClient = Prisma.TransactionClient;
+
 @Injectable()
 export class StockService {
   private readonly logger = new Logger(StockService.name);
@@ -98,14 +120,16 @@ export class StockService {
   ): Promise<StockReceiptView> {
     const businessId = requireBusiness(principal);
 
-    await this.requireBranch(principal, branchId);
+    await requireBranchAccess(this.prisma, principal, branchId);
 
     if (dto.lines.length === 0) {
       throw new BadRequestException('A delivery needs at least one line');
     }
 
     const resolved = await Promise.all(
-      dto.lines.map((line) => this.resolveLine(businessId, line.productId, line.productUnitId)),
+      dto.lines.map((line) =>
+        this.resolveUnit(this.prisma, businessId, line.productId, line.productUnitId),
+      ),
     );
 
     const receipt = await this.prisma.$transaction(async (tx) => {
@@ -193,54 +217,79 @@ export class StockService {
     change: StockChange,
     reason: StockMovementReason = StockMovementReason.SALE,
     source?: { type: string; id: string },
-  ): Promise<ProductStockView> {
+  ): Promise<IssuedStock> {
     const businessId = requireBusiness(principal);
-    const { product, unit, graph } = await this.resolveLine(
+    const resolved = await this.resolveUnit(
+      this.prisma,
       businessId,
       change.productId,
       change.unitId,
     );
 
-    return this.prisma.$transaction(async (tx) => {
-      const state = await this.loadState(tx, branchId, product.id);
+    return this.prisma.$transaction((tx) =>
+      this.issueWithin(tx, principal, branchId, resolved, change, reason, source),
+    );
+  }
 
-      let next: PhysicalState;
+  /**
+   * The same removal, run inside a transaction the caller already owns.
+   *
+   * A sale is one command: its lines, its payments, and the stock they remove
+   * either all happen or none do. That is only true if the stock write joins
+   * the sale's own transaction rather than opening a second one beside it, so
+   * `SalesService` passes its `tx` in here — see PROGRESS.md §3's handoff note.
+   */
+  async issueWithin(
+    tx: StockClient,
+    principal: AuthenticatedUser,
+    branchId: string,
+    resolved: ResolvedUnit,
+    change: StockChange,
+    reason: StockMovementReason = StockMovementReason.SALE,
+    source?: { type: string; id: string },
+  ): Promise<IssuedStock> {
+    const businessId = requireBusiness(principal);
+    const { product, unit, graph } = resolved;
+    const state = await this.loadState(tx, branchId, product.id);
 
-      try {
-        next = issue(state, unit.id, change.quantity, graph);
-      } catch (error) {
-        if (error instanceof InsufficientStockError) {
-          // Fails safely rather than hiding a deficit by changing a unit.
-          throw new ConflictException(
-            `Hakuna bidhaa ya kutosha · Not enough stock: ${error.requestedNormalized} needed, ${error.availableNormalized} available (in ${graph.baseUnitId === unit.id ? unit.name : 'base units'})`,
-          );
-        }
+    // A shortfall never stops the removal. The seller is holding the item, so
+    // the shop has it whatever the records say, and refusing would make
+    // Shoprex argue with physical reality in front of a customer. The balance
+    // goes negative and the caller records the difference as an inconsistency.
+    const { state: next, shortfallNormalized } = issue(
+      state,
+      unit.id,
+      change.quantity,
+      graph,
+    );
 
-        throw error;
-      }
+    if (shortfallNormalized > 0) {
+      this.logger.warn(
+        `Stock inconsistency at branch ${branchId}: ${product.name} short by ${shortfallNormalized} ${graph.baseUnitId === unit.id ? unit.name : 'base unit(s)'}`,
+      );
+    }
 
-      await this.persistState(tx, businessId, branchId, product.id, state, next);
+    await this.persistState(tx, businessId, branchId, product.id, state, next);
 
-      await tx.stockMovement.create({
-        data: {
-          businessId,
-          branchId,
-          productId: product.id,
-          productUnitId: unit.id,
-          direction: StockDirection.OUT,
-          reason,
-          quantity: change.quantity,
-          normalizedQuantity: graph.normalize(change.quantity, unit.id),
-          conversionFactor: graph.factorToBase(unit.id),
-          sourceType: source?.type ?? null,
-          sourceId: source?.id ?? null,
-          actorUserId: principal.userId,
-          deviceId: principal.deviceId,
-        },
-      });
-
-      return this.viewFor(product, graph, branchId, next);
+    await tx.stockMovement.create({
+      data: {
+        businessId,
+        branchId,
+        productId: product.id,
+        productUnitId: unit.id,
+        direction: StockDirection.OUT,
+        reason,
+        quantity: change.quantity,
+        normalizedQuantity: graph.normalize(change.quantity, unit.id),
+        conversionFactor: graph.factorToBase(unit.id),
+        sourceType: source?.type ?? null,
+        sourceId: source?.id ?? null,
+        actorUserId: principal.userId,
+        deviceId: principal.deviceId,
+      },
     });
+
+    return { stock: this.viewFor(product, graph, branchId, next), shortfallNormalized };
   }
 
   /** What a branch physically holds, product by product. */
@@ -250,10 +299,13 @@ export class StockService {
   ): Promise<ProductStockView[]> {
     const businessId = requireBusiness(principal);
 
-    await this.requireBranch(principal, branchId);
+    await requireBranchAccess(this.prisma, principal, branchId);
 
     const rows = await this.prisma.physicalStock.findMany({
-      where: { businessId, branchId, quantity: { gt: 0 } },
+      // `not: 0` rather than `gt: 0`: a negative balance is a shop being told
+      // its count is wrong, and it must not be filtered out of the very list
+      // the owner would look at to find it.
+      where: { businessId, branchId, quantity: { not: 0 } },
       include: { product: { include: { units: true, relationships: true } } },
     });
 
@@ -286,7 +338,7 @@ export class StockService {
   ): Promise<ProductStockView> {
     const businessId = requireBusiness(principal);
 
-    await this.requireBranch(principal, branchId);
+    await requireBranchAccess(this.prisma, principal, branchId);
 
     const product = await this.prisma.product.findFirst({
       where: { id: productId, businessId },
@@ -354,29 +406,13 @@ export class StockService {
   }
 
   /**
-   * A branch in another tenant answers 404, and so does one inside the caller's
-   * own business that a manager or worker is not assigned to.
+   * A product and one of its units, or a 404. Public because the sale command
+   * needs the unit's price and conversion factor for its own snapshots, and
+   * looking them up twice would be one query too many and one chance to
+   * disagree.
    */
-  private async requireBranch(principal: AuthenticatedUser, branchId: string): Promise<void> {
-    const businessId = requireBusiness(principal);
-
-    const branch = await this.prisma.branch.findFirst({
-      where: {
-        id: branchId,
-        businessId,
-        ...(principal.role === UserRole.OWNER
-          ? {}
-          : { assignments: { some: { userId: principal.userId } } }),
-      },
-    });
-
-    if (!branch) {
-      throw new NotFoundException('Branch not found');
-    }
-  }
-
-  private async resolveLine(businessId: string, productId: string, unitId: string) {
-    const product = await this.prisma.product.findFirst({
+  async resolveUnit(client: StockClient, businessId: string, productId: string, unitId: string) {
+    const product = await client.product.findFirst({
       where: { id: productId, businessId },
       include: { units: true, relationships: true },
     });
@@ -409,7 +445,7 @@ export class StockService {
   }
 
   private async loadState(
-    tx: Prisma.TransactionClient,
+    tx: StockClient,
     branchId: string,
     productId: string,
   ): Promise<PhysicalState> {
@@ -420,7 +456,7 @@ export class StockService {
 
   /** Writes only the units whose count actually moved. */
   private async persistState(
-    tx: Prisma.TransactionClient,
+    tx: StockClient,
     businessId: string,
     branchId: string,
     productId: string,

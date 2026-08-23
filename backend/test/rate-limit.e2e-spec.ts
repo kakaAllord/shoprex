@@ -68,7 +68,11 @@ describe('Authentication rate limiting (e2e)', () => {
     const attempt = () =>
       request(app.getHttpServer())
         .post('/api/v1/auth/device/login')
-        .send({ deviceId: '00000000-0000-4000-8000-000000000000', password: 'guess-guess' });
+        .send({
+          deviceId: '00000000-0000-4000-8000-000000000000',
+          userId: '00000000-0000-4000-8000-000000000001',
+          password: 'guess-guess',
+        });
 
     const statuses: number[] = [];
 

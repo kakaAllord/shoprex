@@ -49,13 +49,17 @@ describe('Device and audit isolation (e2e)', () => {
     return response.body.id as string;
   };
 
-  /** Creates a worker and enrolls a phone for them, returning the device id. */
+  /**
+   * Creates a worker at a branch and enrols a phone *to that branch*, returning
+   * the device id. The two are separate facts now — the worker is created so
+   * later tests can sign in as them, and the phone belongs to the branch.
+   */
   const enrollPhoneFor = async (
     token: string,
     fullName: string,
     branchId: string,
   ): Promise<string> => {
-    const worker = await api()
+    await api()
       .post('/api/v1/users/workers')
       .set('Authorization', `Bearer ${token}`)
       .send({ fullName, password, branchId, permissions: [UserPermission.SELL] })
@@ -64,7 +68,7 @@ describe('Device and audit isolation (e2e)', () => {
     const issued = await api()
       .post('/api/v1/devices/enrollments')
       .set('Authorization', `Bearer ${token}`)
-      .send({ userId: worker.body.id })
+      .send({ branchId, deviceName: `Simu ya ${fullName}` })
       .expect(201);
 
     const enrolled = await api()
@@ -209,33 +213,37 @@ describe('Device and audit isolation (e2e)', () => {
     });
 
     it('refuses a manager issuing an enrollment code', async () => {
-      const worker = await prisma.user.findFirst({ where: { fullName: 'Juma A1' } });
-
       await api()
         .post('/api/v1/devices/enrollments')
         .set('Authorization', `Bearer ${managerA1Token}`)
-        .send({ userId: worker!.id })
+        .send({ branchId: branchA1Id, deviceName: 'Simu ya meneja' })
         .expect(403);
     });
   });
 
   describe('DeviceEnrollmentToken — tenant isolation', () => {
-    it('refuses to issue a code for a worker in another business, with 404', async () => {
-      const workerB = await prisma.user.findFirst({ where: { fullName: 'Neema B1' } });
+    it('refuses to issue a code for a branch in another business, with 404', async () => {
+      // A code binds a phone to a branch, so the branch is what has to be
+      // checked against the caller's own tenant. 404, never 403.
+      const branchB = await prisma.branch.findFirst({
+        where: { business: { name: 'Duka B' } },
+      });
 
       await api()
         .post('/api/v1/devices/enrollments')
         .set('Authorization', `Bearer ${ownerAToken}`)
-        .send({ userId: workerB!.id })
+        .send({ branchId: branchB!.id, deviceName: 'Simu ya wizi' })
         .expect(404);
     });
 
-    it('creates no token when the worker belongs to another business', async () => {
-      const workerB = await prisma.user.findFirst({ where: { fullName: 'Neema B1' } });
+    it('creates no token when the branch belongs to another business', async () => {
+      const branchB = await prisma.branch.findFirst({
+        where: { business: { name: 'Duka B' } },
+      });
       const businessA = await prisma.business.findFirst({ where: { name: 'Duka A' } });
 
       const smuggled = await prisma.deviceEnrollmentToken.findFirst({
-        where: { userId: workerB!.id, businessId: businessA!.id },
+        where: { branchId: branchB!.id, businessId: businessA!.id },
       });
 
       expect(smuggled).toBeNull();
@@ -300,9 +308,11 @@ describe('Device and audit isolation (e2e)', () => {
     });
 
     it('refuses a worker on a device reading it too', async () => {
+      const worker = await prisma.user.findFirst({ where: { fullName: 'Juma A1' } });
+
       const login = await api()
         .post('/api/v1/auth/device/login')
-        .send({ deviceId: deviceA1Id, password })
+        .send({ deviceId: deviceA1Id, userId: worker!.id, password })
         .expect(200);
 
       await api()
@@ -343,12 +353,10 @@ describe('Device and audit isolation (e2e)', () => {
     });
 
     it('cannot issue a device enrollment — owners only, per the owner’s decision', async () => {
-      const worker = await prisma.user.findFirst({ where: { fullName: 'Juma A1' } });
-
       await api()
         .post('/api/v1/devices/enrollments')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ userId: worker!.id })
+        .send({ branchId: branchA1Id, deviceName: 'Simu ya msimamizi' })
         .expect(403);
     });
 

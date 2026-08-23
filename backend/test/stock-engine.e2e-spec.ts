@@ -180,7 +180,7 @@ describe('Stock engine over the API (e2e)', () => {
 
   describe('3 — the shop sells 1 Piece', () => {
     it('removes it through the engine, breaking a Carton open', async () => {
-      const view = await stockService.issueStock(ownerPrincipal, branchId, {
+      const { stock: view } = await stockService.issueStock(ownerPrincipal, branchId, {
         productId,
         unitId: pieceId,
         quantity: 1,
@@ -343,7 +343,7 @@ describe('Stock engine over the API (e2e)', () => {
         .send({ lines: [{ productId: cartonOnlyId, productUnitId: cartonOnlyUnitId, quantity: 3 }] })
         .expect(201);
 
-      const view = await stockService.issueStock(ownerPrincipal, branchId, {
+      const { stock: view } = await stockService.issueStock(ownerPrincipal, branchId, {
         productId: cartonOnlyId,
         unitId: cartonOnlyUnitId,
         quantity: 1,
@@ -407,26 +407,49 @@ describe('Stock engine over the API (e2e)', () => {
   });
 
   describe('stock that is not there', () => {
-    it('refuses to issue more than the branch holds, and changes nothing', async () => {
+    // The negative-stock policy, confirmed by the owner on 2026-08-23 and
+    // allowed for by doc 02 §5. Shoprex no longer refuses a movement for want
+    // of a record: the seller is holding the item, so the shop has it. The
+    // balance goes negative and the shortfall is reported for the caller to
+    // record as an inconsistency.
+    it('issues more than the branch holds, and reports the shortfall', async () => {
       const before = await api()
         .get(`/api/v1/branches/${branchId}/stock/${productId}`)
         .set(authed(ownerToken))
         .expect(200);
 
-      await expect(
-        stockService.issueStock(ownerPrincipal, branchId, {
-          productId,
-          unitId: pieceId,
-          quantity: 9_999,
-        }),
-      ).rejects.toMatchObject({ status: 409 });
+      const { stock, shortfallNormalized } = await stockService.issueStock(
+        ownerPrincipal,
+        branchId,
+        { productId, unitId: pieceId, quantity: 9_999 },
+      );
+
+      expect(shortfallNormalized).toBe(9_999 - before.body.normalizedQuantity);
+      expect(stock.normalizedQuantity).toBeLessThan(0);
+    });
+
+    it('lets a later delivery settle the shortfall on its own', async () => {
+      const short = await api()
+        .get(`/api/v1/branches/${branchId}/stock/${productId}`)
+        .set(authed(ownerToken))
+        .expect(200);
+
+      expect(short.body.normalizedQuantity).toBeLessThan(0);
+
+      await api()
+        .post(`/api/v1/branches/${branchId}/stock-receipts`)
+        .set(authed(ownerToken))
+        .send({ lines: [{ productId, productUnitId: pieceId, quantity: 10_000 }] })
+        .expect(201);
 
       const after = await api()
         .get(`/api/v1/branches/${branchId}/stock/${productId}`)
         .set(authed(ownerToken))
         .expect(200);
 
-      expect(after.body).toEqual(before.body);
+      // Received minus sold still equals the balance, with nobody doing
+      // arithmetic by hand — which is the whole reason it may go negative.
+      expect(after.body.normalizedQuantity).toBe(short.body.normalizedQuantity + 10_000);
     });
 
     it('refuses to sell a Carton that exists only as loose Pieces', async () => {
@@ -450,14 +473,16 @@ describe('Stock engine over the API (e2e)', () => {
         .expect(201);
 
       // Twelve pieces is two cartons' worth — but there is no box, and the
-      // engine must not invent one.
-      await expect(
-        stockService.issueStock(ownerPrincipal, branchId, {
-          productId: loose.body.id,
-          unitId: carton.id,
-          quantity: 1,
-        }),
-      ).rejects.toMatchObject({ status: 409 });
+      // engine must not invent one. Under the negative-stock policy the sale
+      // is not refused, but the Pieces are still left exactly where they are:
+      // the Carton line goes to -1 rather than six Pieces being taped up.
+      const { shortfallNormalized } = await stockService.issueStock(
+        ownerPrincipal,
+        branchId,
+        { productId: loose.body.id, unitId: carton.id, quantity: 1 },
+      );
+
+      expect(shortfallNormalized).toBe(0);
 
       const response = await api()
         .get(`/api/v1/branches/${branchId}/stock/${loose.body.id}`)
@@ -465,6 +490,7 @@ describe('Stock engine over the API (e2e)', () => {
         .expect(200);
 
       expect(response.body.packages).toEqual([
+        expect.objectContaining({ unitName: 'Carton', quantity: -1 }),
         expect.objectContaining({ unitName: 'Piece', quantity: 12 }),
       ]);
     });
@@ -638,7 +664,7 @@ describe('Stock engine over the API (e2e)', () => {
       const issued = await api()
         .post('/api/v1/devices/enrollments')
         .set(authed(ownerToken))
-        .send({ userId: worker.body.id })
+        .send({ branchId, deviceName: `Simu ya ${fullName}` })
         .expect(201);
 
       const enrolled = await api()
@@ -648,7 +674,7 @@ describe('Stock engine over the API (e2e)', () => {
 
       const session = await api()
         .post('/api/v1/auth/device/login')
-        .send({ deviceId: enrolled.body.deviceId, password })
+        .send({ deviceId: enrolled.body.deviceId, userId: worker.body.id, password })
         .expect(200);
 
       return session.body.accessToken;

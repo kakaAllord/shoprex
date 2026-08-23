@@ -321,6 +321,33 @@ export class ProductsService {
     return this.toView(await this.requireProduct(principal, productId));
   }
 
+  /**
+   * The unit names this shop already uses, most-used first.
+   *
+   * A seller adding a product mid-sale should be picking from a list, not
+   * spelling "Kipande" under time pressure at a counter — and a shop that
+   * writes it three different ways ends up with three units that mean the same
+   * thing. Ordering by how often a name is already used puts the shop's own
+   * habits at the top, which is a better suggestion than any list Shoprex
+   * could have guessed.
+   *
+   * The client merges this with a small set of common Swahili names, so a shop
+   * on its very first day still has something to choose from.
+   */
+  async unitNames(principal: AuthenticatedUser): Promise<string[]> {
+    const businessId = requireBusiness(principal);
+
+    const rows = await this.prisma.productUnit.groupBy({
+      by: ['name'],
+      where: { product: { businessId } },
+      _count: { name: true },
+      orderBy: { _count: { name: 'desc' } },
+      take: 50,
+    });
+
+    return rows.map((row) => row.name);
+  }
+
   /** A product in another tenant answers 404, never 403. */
   private async requireProduct(
     principal: AuthenticatedUser,

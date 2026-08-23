@@ -93,6 +93,17 @@ export class ProductsController {
   }
 
   @ApiOperation({
+    summary: 'Unit names this shop already uses',
+    description:
+      'Most-used first. Feeds the unit picker when a product is added mid-sale, so a seller chooses `Kipande` from a list rather than spelling it at a counter — a shop that writes one unit three different ways ends up with three units that mean the same thing. The client merges this with a small set of common Swahili names, so a shop on its first day still has something to choose from.',
+  })
+  @ApiOkResponse({ type: [String] })
+  @Get('unit-names')
+  unitNames(@CurrentUser() user: AuthenticatedUser): Promise<string[]> {
+    return this.productsService.unitNames(user);
+  }
+
+  @ApiOperation({
     summary: 'One product',
     description:
       'A product in another tenant answers **404, not 403** — a caller must not learn that a product id exists in someone else’s business.',

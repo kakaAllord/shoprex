@@ -11,7 +11,9 @@ import { AuthModule } from './modules/auth/auth.module';
 import { BranchesModule } from './modules/branches/branches.module';
 import { BusinessesModule } from './modules/businesses/businesses.module';
 import { DevicesModule } from './modules/devices/devices.module';
+import { PaymentMethodsModule } from './modules/payments/payment-methods.module';
 import { ProductsModule } from './modules/products/products.module';
+import { SalesModule } from './modules/sales/sales.module';
 import { StockModule } from './modules/stock/stock.module';
 import { UsersModule } from './modules/users/users.module';
 import { appConfiguration } from './config/configuration';
@@ -59,6 +61,8 @@ import { HealthModule } from './modules/health/health.module';
     DevicesModule,
     ProductsModule,
     StockModule,
+    PaymentMethodsModule,
+    SalesModule,
     HealthModule,
   ],
   providers: [

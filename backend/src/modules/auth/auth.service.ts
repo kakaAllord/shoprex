@@ -7,6 +7,7 @@ import { normalizeTanzanianPhone } from '../../domain/phone';
 import { PrismaService } from '../../database/prisma.service';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { AuditService } from '../audit/audit.service';
+import { createDefaultPaymentMethods } from '../payments/payment-methods.defaults';
 import { SignupDto } from './dto/signup.dto';
 
 export interface AuthenticatedProfile {
@@ -31,6 +32,12 @@ export interface LoginResult {
   accessToken: string;
   expiresIn: string;
   user: AuthenticatedProfile;
+}
+
+/** One person who may sign in on a given phone. Never carries a credential. */
+export interface DeviceSignInOption {
+  userId: string;
+  fullName: string;
 }
 
 /** One development account offered for one-click sign-in. Never in production. */
@@ -99,6 +106,10 @@ export class AuthService {
         data: { name: dto.shopName.trim(), timezone },
       });
 
+      // In the same transaction, so a shop is never left existing but unable
+      // to take money.
+      await createDefaultPaymentMethods(tx, business.id);
+
       return tx.user.create({
         data: {
           email,
@@ -145,38 +156,97 @@ export class AuthService {
   }
 
   /**
-   * Signs a worker in on the phone that was enrolled to them.
+   * Who may sign in on this phone.
    *
-   * There is no email and no enrollment code here: the device *is* the
-   * identity. Because one device belongs to exactly one worker, proving you
-   * hold the device and know that worker's password is the whole credential —
-   * which is why V1 needs no per-worker PIN.
+   * Unauthenticated by necessity: it is what the sign-in screen shows *before*
+   * anybody has signed in. The phone proves itself with the `device_id` the
+   * backend minted for it, and gets back the people assigned to that device's
+   * branch, plus the business owner, who reaches every branch implicitly.
+   *
+   * It returns names and ids and nothing else \u2014 no password hash, no email, no
+   * phone number, no permissions. Whoever holds the handset learns who works at
+   * that branch, which is roughly what a rota on the wall tells them. That is a
+   * real disclosure, made deliberately, and the device id confines it to one
+   * branch of one business. A revoked or unknown device learns nothing at all.
    */
-  async loginDevice(deviceId: string, password: string): Promise<LoginResult> {
+  async deviceSignInOptions(deviceId: string): Promise<DeviceSignInOption[]> {
+    const device = await this.prisma.device.findFirst({
+      where: { id: deviceId, status: DeviceStatus.ACTIVE, business: { isActive: true } },
+      select: { businessId: true, branchId: true },
+    });
+
+    if (!device) {
+      throw new UnauthorizedException(
+        'Kifaa hiki kimefutwa \u00b7 This device has been revoked. Ask the owner to enroll it again.',
+      );
+    }
+
+    const people = await this.prisma.user.findMany({
+      where: {
+        businessId: device.businessId,
+        isActive: true,
+        OR: [
+          { role: UserRole.OWNER },
+          { assignments: { some: { branchId: device.branchId } } },
+        ],
+      },
+      select: { id: true, fullName: true },
+      orderBy: { fullName: 'asc' },
+    });
+
+    return people.map((person) => ({ userId: person.id, fullName: person.fullName }));
+  }
+
+  /**
+   * Signs a person in on a phone enrolled to their branch.
+   *
+   * A device belongs to a **branch**, not to one worker, so the handset no
+   * longer says who is holding it — the caller names the person and proves it
+   * with that person's own password. Which is why `userId` is part of this
+   * request: it is not a secret and never was, and the password is still the
+   * only thing that grants anything.
+   *
+   * The person must be reachable from that phone's branch: assigned to it, or
+   * the owner of the business, who reaches every branch implicitly. Someone
+   * from the next branch over cannot sign in on this counter's phone even with
+   * a correct password.
+   */
+  async loginDevice(deviceId: string, userId: string, password: string): Promise<LoginResult> {
     // One message for every failure, so a phone cannot discover which device
-    // ids exist or whether a given one is merely revoked.
+    // ids or user ids exist, or whether a given device is merely revoked.
     const invalid = new UnauthorizedException(
-      'Kifaa au nenosiri si sahihi · That device or password is not correct',
+      'Kifaa, mtumiaji au nenosiri si sahihi \u00b7 That device, person, or password is not correct',
     );
 
     const device = await this.prisma.device.findUnique({
       where: { id: deviceId },
-      include: {
-        user: { include: { business: true } },
-        business: { select: { isActive: true } },
-      },
+      include: { business: { select: { isActive: true } } },
     });
 
-    if (
-      !device ||
-      device.status !== DeviceStatus.ACTIVE ||
-      !device.user.isActive ||
-      !device.business.isActive
-    ) {
+    if (!device || device.status !== DeviceStatus.ACTIVE || !device.business.isActive) {
       throw invalid;
     }
 
-    if (!(await bcrypt.compare(password, device.user.passwordHash))) {
+    const user = await this.prisma.user.findFirst({
+      where: {
+        id: userId,
+        businessId: device.businessId,
+        isActive: true,
+        // Owners reach every branch of their own business; everyone else must
+        // be assigned to this phone's branch.
+        OR: [
+          { role: UserRole.OWNER },
+          { assignments: { some: { branchId: device.branchId } } },
+        ],
+      },
+      include: { business: true },
+    });
+
+    if (!user) {
+      throw invalid;
+    }
+
+    if (!(await bcrypt.compare(password, user.passwordHash))) {
       throw invalid;
     }
 
@@ -188,20 +258,20 @@ export class AuthService {
     });
 
     await this.audit.record(
-      { userId: device.userId, role: device.user.role, deviceId: device.id },
+      { userId: user.id, role: user.role, deviceId: device.id },
       {
         businessId: device.businessId,
         branchId: device.branchId,
         action: AuditAction.DEVICE_SIGNED_IN,
         targetType: 'Device',
         targetId: device.id,
-        summary: `${device.user.fullName} ameingia kwenye kifaa chake · ${device.user.fullName} signed in on their device`,
+        summary: `${user.fullName} ameingia kwenye simu "${device.name}" \u00b7 ${user.fullName} signed in on "${device.name}"`,
       },
     );
 
-    this.logger.log(`Device login: ${device.id} (worker ${device.userId})`);
+    this.logger.log(`Device login: ${device.id} as ${user.id}`);
 
-    return this.issueSession(device.user, device.user.business?.name ?? null, device.id);
+    return this.issueSession(user, user.business?.name ?? null, device.id);
   }
 
   /** Records the sign-in and mints the access token. */

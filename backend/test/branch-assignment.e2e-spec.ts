@@ -93,10 +93,11 @@ describe('Branch assignment isolation (e2e)', () => {
       .send({ fullName, password, branchId, permissions: [UserPermission.SELL] })
       .expect(201);
 
+    // The phone is enrolled to the branch; the worker signs in on it by name.
     const issued = await api()
       .post('/api/v1/devices/enrollments')
       .set('Authorization', `Bearer ${token}`)
-      .send({ userId: worker.body.id })
+      .send({ branchId, deviceName: `Simu ya ${fullName}` })
       .expect(201);
 
     const enrolled = await api()
@@ -106,7 +107,7 @@ describe('Branch assignment isolation (e2e)', () => {
 
     const session = await api()
       .post('/api/v1/auth/device/login')
-      .send({ deviceId: enrolled.body.deviceId, password })
+      .send({ deviceId: enrolled.body.deviceId, userId: worker.body.id, password })
       .expect(200);
 
     return session.body.accessToken as string;

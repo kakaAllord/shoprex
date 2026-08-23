@@ -1,6 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { UserPermission, UserRole } from '@prisma/client';
-import type { AuthenticatedProfile, DevCredential, LoginResult } from '../auth.service';
+import type {
+  AuthenticatedProfile,
+  DevCredential,
+  DeviceSignInOption,
+  LoginResult,
+} from '../auth.service';
 
 export class AuthenticatedProfileDto implements AuthenticatedProfile {
   @ApiProperty({
@@ -101,4 +106,16 @@ export class DevCredentialDto implements DevCredential {
 
   @ApiProperty({ enum: UserRole })
   role!: UserRole;
+}
+
+/**
+ * One name on the sign-in screen. Deliberately the whole shape: an id and a
+ * name, never a credential, an email, or a permission set.
+ */
+export class DeviceSignInOptionDto implements DeviceSignInOption {
+  @ApiProperty({ format: 'uuid' })
+  userId!: string;
+
+  @ApiProperty({ example: 'Juma Hassan' })
+  fullName!: string;
 }

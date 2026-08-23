@@ -80,31 +80,53 @@ export function receive(
   return next;
 }
 
+/** What a removal actually did, including what the shop turned out not to have. */
+export interface Issued {
+  state: PhysicalState;
+  /**
+   * How much of the request the records could not cover, in base units. Zero
+   * on an ordinary sale. Anything above zero means the count was wrong before
+   * this movement, not that the movement was.
+   */
+  shortfallNormalized: number;
+}
+
 /**
  * Removing stock, breaking larger packages open only as far as necessary.
  *
- * Refuses before changing anything when the shop simply does not hold enough:
- * doc 02 §5 says the transaction fails safely rather than hiding a deficit by
- * changing a unit or a price.
+ * **A shortfall does not stop the removal.** The person holding the phone is
+ * holding the item; the shop plainly has it, whatever the records say, and
+ * refusing the sale would make Shoprex argue with physical reality in front of
+ * a customer. So the removal always happens, the balance is allowed to go
+ * negative, and the difference is reported back as `shortfallNormalized` for
+ * the caller to record as an inconsistency.
+ *
+ * A negative balance is deliberate and self-correcting: received minus sold
+ * always equals the balance, so a shop that sells 5 with 2 recorded sits at
+ * -3, and receiving 10 later lands on the true 7 with nobody doing arithmetic
+ * by hand. Doc 02 §5 allowed for this — it is the "separate approved
+ * negative-stock policy", confirmed by the owner on 2026-08-23.
+ *
+ * What has not changed: the engine still never repackages upward, and it still
+ * breaks the *nearest* larger package rather than the biggest one.
  */
 export function issue(
   state: PhysicalState,
   unitId: string,
   quantity: number,
   graph: UnitGraph,
-): PhysicalState {
+): Issued {
   assertPositive(quantity);
 
   const requested = graph.normalize(quantity, unitId);
   const available = normalizedTotal(state, graph);
-
-  if (requested > available) {
-    throw new InsufficientStockError(requested, available);
-  }
+  const shortfallNormalized = Math.max(requested - available, 0);
 
   const next = new Map(state);
 
-  while ((next.get(unitId) ?? 0) < quantity) {
+  // Break open only what there is. Once nothing larger is left to open, the
+  // loop stops and the subtraction below takes the balance negative.
+  while ((next.get(unitId) ?? 0) < quantity && canBreakOpen(next, unitId, graph)) {
     breakOneOpen(next, unitId, graph);
   }
 
@@ -116,7 +138,12 @@ export function issue(
     next.set(unitId, remaining);
   }
 
-  return next;
+  return { state: next, shortfallNormalized };
+}
+
+/** Whether any larger package is left to open. */
+function canBreakOpen(state: Map<string, number>, unitId: string, graph: UnitGraph): boolean {
+  return graph.ancestorsOf(unitId).some((ancestorId) => (state.get(ancestorId) ?? 0) > 0);
 }
 
 /**
@@ -129,8 +156,8 @@ function breakOneOpen(state: Map<string, number>, unitId: string, graph: UnitGra
     .find((ancestorId) => (state.get(ancestorId) ?? 0) > 0);
 
   if (source === undefined) {
-    // normalizedTotal already proved the stock exists, so reaching here would
-    // mean the graph and the state disagree about which units belong together.
+    // canBreakOpen is checked first, so reaching here would mean the graph and
+    // the state disagree about which units belong together.
     throw new InsufficientStockError(0, 0);
   }
 
@@ -159,8 +186,12 @@ export function describeState(
   state: PhysicalState,
   graph: UnitGraph,
 ): Array<{ unitId: string; quantity: number }> {
+  // Zero is left out — a unit the shop holds none of is not worth saying. A
+  // *negative* one very much is: it is the shop being told its count is wrong,
+  // and hiding it would defeat the whole point of letting the balance go
+  // negative in the first place.
   return [...state]
-    .filter(([, quantity]) => quantity > 0)
+    .filter(([, quantity]) => quantity !== 0)
     .sort(([a], [b]) => graph.factorToBase(b) - graph.factorToBase(a))
     .map(([unitId, quantity]) => ({ unitId, quantity }));
 }

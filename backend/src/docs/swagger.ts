@@ -43,6 +43,16 @@ Prices are whole Tanzanian shillings, one price per unit across the business.
 form, and the check digit is verified — a mis-scan answers \`400\` rather than
 being stored as a product nothing will ever match again.
 
+**Sales.** Completing a sale is one atomic command: the sale, its lines, the
+payment settlement, the payment records, and the stock movements all commit
+together or not at all. It requires an \`idempotencyKey\`, unique per business,
+so a retried request on a dropped connection returns the original sale instead
+of ringing it up twice. Every line snapshots the product name, unit name,
+price, conversion factor, and normalized quantity — a later price change or
+repackaging can never rewrite a completed sale. Payments must settle the total
+exactly; change is calculated by the backend from the cash actually tendered,
+and a debt records nothing but a free-text name and the amount owed.
+
 V1 is online-only: there is no offline queue, outbox, or sync endpoint.`;
 
 /** Builds the OpenAPI document. Exported so tests can assert on the contract. */
@@ -78,6 +88,11 @@ export function buildOpenApiDocument(
       'The catalogue: products, their packagings, prices, and barcodes.',
     )
     .addTag('stock', 'What each branch physically holds, and deliveries into it.')
+    .addTag(
+      'payments',
+      'The methods a shop accepts. Editing them is the Phase 6 settings screen; this is the checkout sheet’s read.',
+    )
+    .addTag('sales', 'Completed sales: atomic, idempotent, and snapshotted.')
     .build();
 
   return SwaggerModule.createDocument(app, config, {

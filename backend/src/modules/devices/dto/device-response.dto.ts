@@ -15,19 +15,17 @@ export class DeviceViewDto implements DeviceView {
   id!: string;
 
   @ApiProperty({
-    example: 'Juma Hassan',
-    description: 'The worker’s own name, so the owner can see whose phone this is.',
+    example: 'Simu ya kaunta',
+    description:
+      'What the owner calls this handset, so they can tell one from another. A label — a device belongs to a branch, not to a person, so this is not an identity.',
   })
   name!: string;
 
-  @ApiProperty({ format: 'uuid' })
+  @ApiProperty({ format: 'uuid', description: 'The branch this phone belongs to.' })
   branchId!: string;
 
-  @ApiProperty({ format: 'uuid', description: 'The one worker this device belongs to.' })
-  userId!: string;
-
-  @ApiProperty({ example: 'Juma Hassan' })
-  workerName!: string;
+  @ApiProperty({ example: 'Tawi Kuu' })
+  branchName!: string;
 
   @ApiProperty({
     enum: DeviceStatus,
@@ -38,7 +36,7 @@ export class DeviceViewDto implements DeviceView {
   @ApiProperty({
     format: 'date-time',
     nullable: true,
-    description: 'Set by the backend at enrollment and at each device sign-in.',
+    description: 'Set by the backend at enrollment and at each sign-in on this phone.',
   })
   lastSeenAt!: Date | null;
 
@@ -62,14 +60,20 @@ export class IssuedEnrollmentViewDto implements IssuedEnrollmentView {
   @ApiProperty({ format: 'date-time', description: 'Backend server clock.' })
   expiresAt!: Date;
 
-  @ApiProperty({ format: 'uuid' })
-  userId!: string;
+  @ApiProperty({
+    example: 'Simu ya kaunta',
+    description: 'What the phone will be called once it redeems this code.',
+  })
+  deviceName!: string;
 
-  @ApiProperty({ example: 'Juma Hassan' })
-  workerName!: string;
-
-  @ApiProperty({ format: 'uuid', description: 'Taken from the worker’s own branch assignment.' })
+  @ApiProperty({
+    format: 'uuid',
+    description: 'The branch this code will bind a phone to, named by the owner.',
+  })
   branchId!: string;
+
+  @ApiProperty({ example: 'Tawi Kuu' })
+  branchName!: string;
 }
 
 export class EnrolledDeviceViewDto implements EnrolledDeviceView {
@@ -79,7 +83,7 @@ export class EnrolledDeviceViewDto implements EnrolledDeviceView {
   })
   deviceId!: string;
 
-  @ApiProperty({ example: 'Juma Hassan' })
+  @ApiProperty({ example: 'Simu ya kaunta' })
   deviceName!: string;
 
   @ApiProperty({ format: 'uuid' })
@@ -91,14 +95,12 @@ export class EnrolledDeviceViewDto implements EnrolledDeviceView {
   @ApiProperty({ format: 'uuid' })
   branchId!: string;
 
-  @ApiProperty({ example: 'Tawi la Kariakoo' })
+  @ApiProperty({
+    example: 'Tawi la Kariakoo',
+    description:
+      'The branch this phone now belongs to. Anyone assigned to it may sign in here with their own password.',
+  })
   branchName!: string;
-
-  @ApiProperty({ format: 'uuid' })
-  workerId!: string;
-
-  @ApiProperty({ example: 'Juma Hassan' })
-  workerName!: string;
 
   @ApiProperty({ format: 'date-time', description: 'Backend server clock.' })
   enrolledAt!: Date;

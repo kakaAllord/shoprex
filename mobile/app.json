@@ -7,7 +7,15 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "plugins": [
-      "expo-dev-client"
+      "expo-dev-client",
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Shoprex inatumia kamera kusoma namba ya bidhaa · Shoprex uses the camera to scan product barcodes.",
+          "recordAudioAndroid": false
+        }
+      ]
     ],
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -24,7 +32,8 @@
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
-        "android.permission.INTERNET"
+        "android.permission.INTERNET",
+        "android.permission.CAMERA"
       ]
     },
     "ios": {

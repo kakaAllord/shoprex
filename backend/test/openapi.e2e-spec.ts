@@ -75,6 +75,7 @@ describe('OpenAPI contract (e2e)', () => {
       ['/api/v1/auth/signup', 'post'],
       ['/api/v1/auth/login', 'post'],
       ['/api/v1/auth/device/login', 'post'],
+      ['/api/v1/auth/device/{deviceId}/people', 'get'],
       ['/api/v1/auth/me', 'get'],
       ['/api/v1/auth/dev-credentials', 'get'],
       ['/api/v1/businesses', 'post'],
@@ -99,11 +100,16 @@ describe('OpenAPI contract (e2e)', () => {
       ['/api/v1/products', 'post'],
       ['/api/v1/products', 'get'],
       ['/api/v1/products/lookup', 'get'],
+      ['/api/v1/products/unit-names', 'get'],
       ['/api/v1/products/{id}', 'get'],
       ['/api/v1/products/{id}/units', 'post'],
       ['/api/v1/branches/{branchId}/stock-receipts', 'post'],
       ['/api/v1/branches/{branchId}/stock', 'get'],
       ['/api/v1/branches/{branchId}/stock/{productId}', 'get'],
+      // Phase 4 — the selling flow.
+      ['/api/v1/payment-methods', 'get'],
+      ['/api/v1/branches/{branchId}/sales', 'post'],
+      ['/api/v1/branches/{branchId}/sales/{id}', 'get'],
     ];
 
     it.each(expected)('documents %s %s', (path, method) => {
@@ -151,11 +157,15 @@ describe('OpenAPI contract (e2e)', () => {
       ['/api/v1/products', 'post'],
       ['/api/v1/products', 'get'],
       ['/api/v1/products/lookup', 'get'],
+      ['/api/v1/products/unit-names', 'get'],
       ['/api/v1/products/{id}', 'get'],
       ['/api/v1/products/{id}/units', 'post'],
       ['/api/v1/branches/{branchId}/stock-receipts', 'post'],
       ['/api/v1/branches/{branchId}/stock', 'get'],
       ['/api/v1/branches/{branchId}/stock/{productId}', 'get'],
+      ['/api/v1/payment-methods', 'get'],
+      ['/api/v1/branches/{branchId}/sales', 'post'],
+      ['/api/v1/branches/{branchId}/sales/{id}', 'get'],
     ] as [string, HttpMethod][])(
       'marks %s %s as requiring a bearer token',
       (path, method) => {
@@ -174,6 +184,9 @@ describe('OpenAPI contract (e2e)', () => {
       // arrive without a token. Both sit in the strict auth rate-limit bucket
       // instead — see the rate-limit suite.
       ['/api/v1/auth/device/login', 'post'],
+      // A phone asking who may sign in on it has no token yet either, by
+      // definition — it is showing the sign-in screen.
+      ['/api/v1/auth/device/{deviceId}/people', 'get'],
       ['/api/v1/devices/enroll', 'post'],
     ] as [string, HttpMethod][])(
       'leaves the public route %s %s unauthenticated',
@@ -238,7 +251,16 @@ describe('OpenAPI contract (e2e)', () => {
      * assignment — see users.e2e-spec.ts. Adding a DTO to this list without
      * that test is the mistake this pinning exists to make visible.
      */
-    const MAY_NAME_A_BRANCH = ['CreateWorkerDto', 'CreateManagerDto'];
+    const MAY_NAME_A_BRANCH = [
+      'CreateWorkerDto',
+      'CreateManagerDto',
+      // Added 2026-08-23 with the shared-device change: an enrollment code
+      // binds a phone to a *branch* rather than to a worker, so the owner has
+      // to name one. Backed by a cross-tenant test in
+      // device-enrollment.e2e-spec.ts and devices.e2e-spec.ts — another
+      // owner's branch answers 404, and no token is written.
+      'IssueEnrollmentDto',
+    ];
 
     it('keeps stock’s branch in the URL rather than the body', () => {
       // Stock belongs to a branch, so the branch is a path segment. That is
@@ -246,6 +268,17 @@ describe('OpenAPI contract (e2e)', () => {
       // never needed to name a branch in a request body.
       expect(propertiesOf('CreateStockReceiptDto')).toEqual(['lines', 'note']);
       expect(document.paths['/api/v1/branches/{branchId}/stock-receipts']).toBeDefined();
+    });
+
+    it('keeps a sale’s branch in the URL rather than the body', () => {
+      // Same rule as stock, for the same reason: a sale belongs to a branch,
+      // so the branch is a path segment and the allowlist below does not grow.
+      expect(propertiesOf('CreateSaleDto')).toEqual([
+        'idempotencyKey',
+        'lines',
+        'payments',
+      ]);
+      expect(document.paths['/api/v1/branches/{branchId}/sales']).toBeDefined();
     });
 
     it('accepts a branch id only where the owner must choose one', () => {
@@ -327,6 +360,19 @@ describe('OpenAPI contract (e2e)', () => {
         // Issued once, then never again.
         'IssuedEnrollmentViewDto',
       ]);
+    });
+
+    it('never puts a credential on the sign-in name list', () => {
+      // The list is unauthenticated by necessity — it is what the phone shows
+      // before anybody has signed in. It may carry a name and an id, and it
+      // must never grow anything that helps somebody holding the handset get
+      // past the password.
+      const schema = document.components?.schemas?.DeviceSignInOptionDto;
+
+      expect(schema).toBeDefined();
+      expect(
+        Object.keys(('properties' in schema! && schema.properties) || {}).sort(),
+      ).toEqual(['fullName', 'userId']);
     });
 
     it('publishes the shared error envelope so both clients parse one shape', () => {

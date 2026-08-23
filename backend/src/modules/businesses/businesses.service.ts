@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../database/prisma.service';
 import { AuthService } from '../auth/auth.service';
+import { createDefaultPaymentMethods } from '../payments/payment-methods.defaults';
 import { CreateBusinessDto } from './dto/create-business.dto';
 
 export interface BusinessSummary {
@@ -54,6 +55,10 @@ export class BusinessesService {
           businessId: created.id,
         },
       });
+
+      // In the same transaction, so a shop is never left existing but unable
+      // to take money.
+      await createDefaultPaymentMethods(tx, created.id);
 
       return created;
     });

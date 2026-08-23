@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuditAction, DeviceStatus, Prisma, UserRole } from '@prisma/client';
+import { requireBranchAccess } from '../../common/branch-access';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { requireBusiness } from '../../common/tenancy';
 import { PrismaService } from '../../database/prisma.service';
@@ -24,8 +25,7 @@ export interface DeviceView {
   id: string;
   name: string;
   branchId: string;
-  userId: string;
-  workerName: string;
+  branchName: string;
   status: DeviceStatus;
   lastSeenAt: Date | null;
   revokedAt: Date | null;
@@ -40,9 +40,9 @@ export interface IssuedEnrollmentView {
   enrollmentId: string;
   code: string;
   expiresAt: Date;
-  userId: string;
-  workerName: string;
+  deviceName: string;
   branchId: string;
+  branchName: string;
 }
 
 /** What the phone learns when it binds itself. No session, no secret. */
@@ -53,10 +53,9 @@ export interface EnrolledDeviceView {
   businessName: string;
   branchId: string;
   branchName: string;
-  workerId: string;
-  workerName: string;
   enrolledAt: Date;
 }
+
 
 const DEFAULT_ENROLLMENT_TTL_MINUTES = 60;
 
@@ -71,32 +70,20 @@ export class DevicesService {
   ) {}
 
   /**
-   * Issues a one-time code the owner hands to a worker. The branch is taken
-   * from the worker's own assignment rather than the request, so a code can
-   * never bind a phone to a branch the worker does not work in.
+   * Issues a one-time code that binds a phone to a **branch**.
+   *
+   * It used to bind a phone to one worker, and the branch came from that
+   * worker's own assignment. Since a device belongs to a branch, the owner
+   * names the branch directly — and it is checked against their own business,
+   * so a code can never bind a phone into somebody else's shop.
    */
   async issueEnrollment(
     principal: AuthenticatedUser,
     dto: IssueEnrollmentDto,
   ): Promise<IssuedEnrollmentView> {
     const businessId = requireBusiness(principal);
-
-    const worker = await this.prisma.user.findFirst({
-      where: { id: dto.userId, businessId, role: UserRole.WORKER, isActive: true },
-      include: { assignments: { select: { branchId: true } } },
-    });
-
-    if (!worker) {
-      throw new NotFoundException('Worker not found');
-    }
-
-    const branchId = worker.assignments[0]?.branchId;
-
-    if (!branchId) {
-      throw new ConflictException(
-        'Mfanyakazi huyu hana tawi · This worker is not assigned to a branch yet',
-      );
-    }
+    const branch = await requireBranchAccess(this.prisma, principal, dto.branchId);
+    const deviceName = dto.deviceName.trim();
 
     const code = generateEnrollmentCode();
     const expiresAt = new Date(Date.now() + this.enrollmentTtlMinutes(dto) * 60_000);
@@ -105,8 +92,8 @@ export class DevicesService {
       const row = await tx.deviceEnrollmentToken.create({
         data: {
           businessId,
-          branchId,
-          userId: worker.id,
+          branchId: branch.id,
+          deviceName,
           issuedById: principal.userId,
           tokenHash: hashEnrollmentCode(code),
           expiresAt,
@@ -117,13 +104,13 @@ export class DevicesService {
         actorFrom(principal),
         {
           businessId,
-          branchId,
+          branchId: branch.id,
           action: AuditAction.DEVICE_ENROLLMENT_ISSUED,
           targetType: 'DeviceEnrollmentToken',
           targetId: row.id,
           // Deliberately no code in the summary: the audit log is readable and
           // the code is a secret.
-          summary: `Msimbo wa kuunganisha kifaa umetolewa kwa ${worker.fullName} · Enrollment code issued for ${worker.fullName}`,
+          summary: `Msimbo wa kuunganisha simu "${deviceName}" umetolewa kwa ${branch.name} · Enrollment code issued for "${deviceName}" at ${branch.name}`,
         },
         tx,
       );
@@ -131,31 +118,35 @@ export class DevicesService {
       return row;
     });
 
-    this.logger.log(`Enrollment issued: ${enrollment.id} for worker ${worker.id}`);
+    this.logger.log(`Enrollment issued: ${enrollment.id} for branch ${branch.id}`);
 
     return {
       enrollmentId: enrollment.id,
       code,
       expiresAt: enrollment.expiresAt,
-      userId: worker.id,
-      workerName: worker.fullName,
-      branchId,
+      deviceName,
+      branchId: branch.id,
+      branchName: branch.name,
     };
   }
 
   /**
    * Redeems a code from an unauthenticated phone and mints the device.
    *
-   * Two rules from PROGRESS §2 live here. A worker who already holds an active
-   * device is refused — the owner revokes the old phone first, so a code alone
-   * can never move a worker onto a different handset. And that refusal must not
-   * consume the code, or a worker standing in the shop would be stranded until
-   * the owner issued another one. Only a successful bind marks it used.
+   * The phone chooses nothing: the backend mints the `device_id` and binds the
+   * installation to one business and one branch. An unknown code, a spent one,
+   * an expired one, and one for a deactivated business are all the same answer,
+   * so a phone cannot probe which codes exist or why one failed. Only a bind
+   * that actually happened marks the code used.
+   *
+   * The "this worker already has a phone" refusal that used to live here is
+   * gone along with the one-device-per-worker rule — a branch may have as many
+   * handsets as it needs.
    */
   async redeemEnrollment(dto: RedeemEnrollmentDto): Promise<EnrolledDeviceView> {
     const code = normalizeEnrollmentCode(dto.code);
     const rejected = new UnauthorizedException(
-      'Msimbo si sahihi au umekwisha muda · That enrollment code is not valid or has expired',
+      'Msimbo si sahihi au umekwisha muda \u00b7 That enrollment code is not valid or has expired',
     );
 
     if (!code) {
@@ -165,37 +156,19 @@ export class DevicesService {
     const enrollment = await this.prisma.deviceEnrollmentToken.findUnique({
       where: { tokenHash: hashEnrollmentCode(code) },
       include: {
-        user: { select: { id: true, fullName: true, isActive: true } },
         business: { select: { id: true, name: true, isActive: true } },
-        branch: { select: { id: true, name: true } },
+        branch: { select: { id: true, name: true, isActive: true } },
       },
     });
 
-    // An unknown code, a spent code, an expired code, and a code for a
-    // deactivated worker or business are all one answer: a phone must not be
-    // able to probe which codes exist or why one failed.
     if (
       !enrollment ||
       enrollment.usedAt !== null ||
       enrollment.expiresAt.getTime() <= Date.now() ||
-      !enrollment.user.isActive ||
-      !enrollment.business.isActive
+      !enrollment.business.isActive ||
+      !enrollment.branch.isActive
     ) {
       throw rejected;
-    }
-
-    // Checked before anything is bound, and deliberately before the code is
-    // consumed. ACTIVE only: a revoked device must not keep blocking the
-    // worker, or revocation would not actually free them.
-    const held = await this.prisma.device.findFirst({
-      where: { userId: enrollment.userId, status: DeviceStatus.ACTIVE },
-      select: { name: true, createdAt: true },
-    });
-
-    if (held) {
-      throw new ConflictException(
-        `Mfanyakazi huyu tayari ana kifaa "${held.name}". Mmiliki lazima akifute kwanza · This worker already has an active device, "${held.name}". The owner must revoke it before a new phone can be enrolled. This code has not been used and still works.`,
-      );
     }
 
     const enrolledAt = new Date();
@@ -205,10 +178,7 @@ export class DevicesService {
         data: {
           businessId: enrollment.businessId,
           branchId: enrollment.branchId,
-          userId: enrollment.userId,
-          // The worker's own name, so the owner sees whose phone it is at a
-          // glance. A naming convention, not a second identity mechanism.
-          name: enrollment.user.fullName,
+          name: enrollment.deviceName,
           lastSeenAt: enrolledAt,
         },
       });
@@ -221,18 +191,16 @@ export class DevicesService {
       });
 
       await this.audit.record(
-        {
-          userId: enrollment.userId,
-          role: UserRole.WORKER,
-          deviceId: created.id,
-        },
+        // The owner who issued the code is the actor: nobody has signed in on
+        // this phone yet, and the device no longer stands for a person.
+        { userId: enrollment.issuedById, role: null, deviceId: created.id },
         {
           businessId: enrollment.businessId,
           branchId: enrollment.branchId,
           action: AuditAction.DEVICE_ENROLLED,
           targetType: 'Device',
           targetId: created.id,
-          summary: `Kifaa cha ${enrollment.user.fullName} kimeunganishwa · Device enrolled for ${enrollment.user.fullName}`,
+          summary: `Simu "${enrollment.deviceName}" imeunganishwa kwenye ${enrollment.branch.name} \u00b7 Device "${enrollment.deviceName}" enrolled at ${enrollment.branch.name}`,
         },
         tx,
       );
@@ -240,7 +208,7 @@ export class DevicesService {
       return created;
     });
 
-    this.logger.log(`Device enrolled: ${device.id} for worker ${enrollment.userId}`);
+    this.logger.log(`Device enrolled: ${device.id} at branch ${enrollment.branchId}`);
 
     return {
       deviceId: device.id,
@@ -249,8 +217,6 @@ export class DevicesService {
       businessName: enrollment.business.name,
       branchId: enrollment.branch.id,
       branchName: enrollment.branch.name,
-      workerId: enrollment.user.id,
-      workerName: enrollment.user.fullName,
       enrolledAt: device.createdAt,
     };
   }
@@ -272,7 +238,7 @@ export class DevicesService {
     const devices = await this.prisma.device.findMany({
       where,
       orderBy: [{ status: 'asc' }, { name: 'asc' }],
-      include: { user: { select: { fullName: true } } },
+      include: DEVICE_INCLUDE,
     });
 
     return devices.map(toDeviceView);
@@ -306,7 +272,7 @@ export class DevicesService {
           revokedAt: new Date(),
           revokedById: principal.userId,
         },
-        include: { user: { select: { fullName: true } } },
+        include: DEVICE_INCLUDE,
       });
 
       await this.audit.record(
@@ -317,7 +283,7 @@ export class DevicesService {
           action: AuditAction.DEVICE_REVOKED,
           targetType: 'Device',
           targetId: updated.id,
-          summary: `Kifaa cha ${updated.user.fullName} kimefutwa · Device revoked for ${updated.user.fullName}`,
+          summary: `Simu "${updated.name}" imefutwa · Device "${updated.name}" revoked`,
         },
         tx,
       );
@@ -344,7 +310,7 @@ export class DevicesService {
           ? {}
           : { branch: { assignments: { some: { userId: principal.userId } } } }),
       },
-      include: { user: { select: { fullName: true } } },
+      include: DEVICE_INCLUDE,
     });
 
     if (!device) {
@@ -362,17 +328,18 @@ export class DevicesService {
   }
 }
 
-type DeviceRecord = Prisma.DeviceGetPayload<{
-  include: { user: { select: { fullName: true } } };
-}>;
+const DEVICE_INCLUDE = {
+  branch: { select: { name: true } },
+} satisfies Prisma.DeviceInclude;
+
+type DeviceRecord = Prisma.DeviceGetPayload<{ include: typeof DEVICE_INCLUDE }>;
 
 function toDeviceView(device: DeviceRecord): DeviceView {
   return {
     id: device.id,
     name: device.name,
     branchId: device.branchId,
-    userId: device.userId,
-    workerName: device.user.fullName,
+    branchName: device.branch.name,
     status: device.status,
     lastSeenAt: device.lastSeenAt,
     revokedAt: device.revokedAt,
