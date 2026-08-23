@@ -84,7 +84,9 @@
 
 ## Explicitly deferred after V1
 
-Offline-first operation, offline sales, background synchronization, multi-device conflict resolution, automatic external report sending, mobile-money provider APIs, returns/refunds/corrections, customers/CRM, expenses/profit, suppliers, purchase orders, branch stock transfers, visual recognition, e-commerce, delivery, loyalty, payroll, and regulatory fiscal-device integrations.
+Offline-first operation, offline sales, background synchronization, multi-device conflict resolution, automatic external report sending, mobile-money provider APIs, returns/refunds/corrections, customers/CRM, expenses/profit, suppliers, purchase orders, branch stock transfers, visual recognition, e-commerce, delivery, loyalty, payroll, **receipt printing**, and regulatory fiscal-device integrations.
+
+Receipt printing was added to this list on 2026-08-23, confirmed by the owner during Phase 4. V1 receipts are viewed on the phone or shared through its normal share function; printing is a next-version feature.
 
 ## Phase handoff rule
 

@@ -34,7 +34,7 @@ The role hierarchy is:
 | Platform administrator | Entire Shoprex platform | Create/manage shop accounts and platform-level operations |
 | Owner | Entire business | Manage branches, products, devices, users, payment methods, reports, and business-wide visibility |
 | Manager | Assigned branch or branches | Manage the branch within permissions delegated by the owner |
-| Worker | Assigned branch | Sell, receive stock, view stock, or view totals only when permitted. Signs in on the one device enrolled to them, not by email |
+| Worker | Assigned branch | Sell, receive stock, view stock, or view totals only when permitted. Signs in by name and password on any phone enrolled to their branch, not by email |
 
 The owner may act as the manager for a branch. The data model must also support creating a separate manager later without forcing the owner to create a duplicate owner account.
 
@@ -52,26 +52,56 @@ A device is a first-class record, not merely an anonymous login session. At mini
 
 The QR code and link must contain a short-lived, single-use enrollment token rather than a permanent secret. After enrollment, the mobile app stores a device credential securely and uses the backend to authenticate the device. A revoked device must not create sales or stock movements.
 
-**As built in Phase 2.** `Device` carries the business, branch, and the one
-worker it belongs to; a server-minted uuid `id` *is* the `device_id`; a
+**As built in Phase 2, revised 2026-08-23.** `Device` carries the business and
+the **branch** it belongs to; a server-minted uuid `id` *is* the `device_id`; a
 `DeviceStatus` of `ACTIVE` or `REVOKED`; `lastSeenAt`, `revokedAt`, and
-`revokedById`. There is no separate device password hash: because a device
-belongs to exactly one worker, the device credential is a *reference* to that
-worker's own password — the "or equivalent credential reference" this section
-allows. One password, one place, no drift between two copies of it.
+`revokedById`. It carries no `userId`: a phone belongs to a branch and is shared
+by everyone who works there, so that a flat battery does not end a shift. The
+`name` is a label the owner chooses — "Simu ya kaunta" — never an identity.
+
+There is no device password hash. The credential is a *reference* to the signing
+-in person's own password — the "or equivalent credential reference" this
+section allows — so there is one password in one place with no drift between
+copies of it.
+
+Because the handset no longer identifies anybody, **sign-in does**.
+`POST /auth/device/login` takes the `device_id`, the `userId` of whoever is
+signing in, and that person's password. The `userId` is not a secret and never
+was: `GET /auth/device/{deviceId}/people` hands the sign-in screen the names of
+everyone assigned to that phone's branch, plus the owner. That endpoint is
+unauthenticated by necessity — it runs before anybody has signed in — so it is
+in the strict auth rate-limit bucket, returns **names and ids only**, and
+answers `401` for a revoked or unknown device. Whoever holds the handset learns
+who works at that branch, which is roughly what a rota on the wall tells them;
+it is a deliberate disclosure, confined to one branch of one business by the
+device id.
+
+Authorization does not rest on the name list. The backend re-checks that the
+person is assigned to that phone's branch — or is the owner, who reaches every
+branch of their own business — before the password is even compared, and every
+branch-scoped route re-checks it live on each request through
+`requireBranchAccess`. Unassigning somebody ends their reach immediately rather
+than whenever an eight-hour token expires.
+
+**A per-worker PIN is still not needed, but for a different reason.** It used to
+be unnecessary because the device identified one person. Now it is unnecessary
+because the person identifies themselves and proves it with a real password. If
+speed at the counter ever makes a short PIN worth the weaker credential, that is
+a product decision and an ADR, not a quiet change.
 
 `DeviceEnrollmentToken` stores the SHA-256 hash of the code and never the code
-itself, plus `expiresAt`, `usedAt`, and the `deviceId` a successful bind
+itself, plus the `branchId` the code will bind a phone to, the `deviceName` it
+will be given, `expiresAt`, `usedAt`, and the `deviceId` a successful bind
 produced. SHA-256 rather than bcrypt is deliberate: redemption has to *find* the
 row by the value presented, which needs a deterministic digest, and the input is
 a high-entropy random code rather than a human-chosen password. `usedAt` is set
-only by a bind that actually happened — a refused redemption leaves the code
-usable.
+only by a bind that actually happened.
 
 A revoked device is stopped by `DeviceSessionGuard`, which runs on every
 device-authenticated request. That is one lookup per request, paid only by
 device sessions; it is what makes revocation take effect immediately rather than
-whenever the token happens to expire.
+whenever the token happens to expire. It no longer checks that the device
+belongs to the signed-in worker, because it no longer belongs to one.
 
 Multiple devices are allowed in V1. Because V1 requires devices to be online, each authoritative transaction is accepted by the backend in normal request order. The system does not implement offline writes, an outbox, conflict resolution, or background reconciliation in this version.
 
@@ -143,6 +173,37 @@ The engine must never automatically repackage upward. If the shop has 6 loose Pi
 
 The transaction must fail safely when stock is insufficient, unless a separate approved negative-stock policy is introduced. Do not hide an inventory deficit by changing units or prices.
 
+**The negative-stock policy, approved by the owner on 2026-08-23.** This is the
+exception the sentence above allows for, and it now governs every removal.
+
+A sale is **never refused for want of a record.** The person selling is holding
+the item; the shop plainly has it, whatever the count says, and refusing would
+make Shoprex argue with physical reality in front of a customer. It is at its
+most absurd on a product created moments earlier during the sale itself — of
+course nothing has been received against it.
+
+So `issue()` completes, the branch balance is allowed to go **negative**, and
+the amount the records could not cover is returned as `shortfallNormalized` for
+the caller to record. A negative balance is deliberate and self-correcting:
+received minus sold always equals the balance, so a shop that sells 5 with 2
+counted sits at -3, and a later delivery of 10 lands on the true 7 with nobody
+doing arithmetic by hand. `describeState` and the branch stock list both show
+negative lines rather than filtering them out — hiding the number would defeat
+the point of keeping it.
+
+This does **not** loosen the other rules. The engine still never repackages
+upward: selling a Carton from twelve loose Pieces takes the Carton line to -1
+and leaves the Pieces untouched, because nobody taped a box around them. And it
+is not hiding a deficit "by changing units or prices" — no unit and no price
+moves; a shortfall is recorded as a shortfall.
+
+`SaleLine.shortfallNormalized` keeps it on the sale, and an
+`AuditAction.STOCK_INCONSISTENCY` entry names the product, the branch, and the
+amount, so the owner has something to recount rather than a negative number to
+discover in a stock list weeks later. The seller sees a note on the receipt
+saying the sale went through and the count was short — never that the sale
+failed.
+
 **As built in Phase 3.** `backend/src/domain/stock.ts` holds the physical state
 as a count per unit and every function is pure, returning a new state — so a
 movement that turns out to be impossible cannot leave stock half-changed.
@@ -176,6 +237,39 @@ A sale line stores snapshots of product name, unit name, quantity, price, line t
 
 The complete sale command should be atomic: create the sale, create lines, validate payment settlement, record payments/debt, and apply stock movements as one backend transaction. The command must accept an idempotency key so a retried network request cannot duplicate a sale.
 
+**As built in Phase 4.** `backend/src/domain/sale.ts` holds `lineTotal`,
+`saleTotal`, and `settle` as pure functions beside `units.ts` and `stock.ts`.
+Every amount crossing that module is checked to be a whole number of shillings:
+there is no rounding step, because a fractional shilling is a bug upstream and
+absorbing it would make a receipt disagree with its own total.
+
+`SalesService.complete` is the atomic command. Everything — `Sale`,
+`SaleLine[]`, `SalePayment[]`, the audit entry, and one
+`StockService.issueWithin` per line — runs inside a single `$transaction`.
+That is why Phase 3's `issueStock` was split: it used to open its own
+transaction, and a stock write beside the sale rather than inside it would let
+a sale that failed on its third line still have removed the first two lines'
+stock.
+
+Each `SaleLine` snapshots `productName`, `unitName`, `quantity`,
+`unitPriceTzs`, `lineTotalTzs`, `conversionFactor`, and `normalizedQuantity`.
+A unit with no price cannot be sold at all — a product may exist before it is
+fully configured, but the price is the one thing a sale cannot invent.
+
+**Idempotency** is a required `idempotencyKey`, unique per business. The cheap
+path is a lookup before any work is done; the race — two identical requests
+neither of which saw the other's row — is caught by the
+`@@unique([businessId, idempotencyKey])` index, and the loser returns the
+winner's sale rather than an error. The key is scoped to the business, so two
+shops that both number their sales from 1 do not collide; reusing one key
+across two branches of the *same* shop answers `409`, because that is not a
+retry and returning the other branch's receipt would be worse than an error.
+
+The same product and unit appearing on two lines of one sale is **refused**
+rather than added up. The phone's cart is supposed to increment the line it
+already has, and quietly summing them would hide that bug instead of surfacing
+it.
+
 ## 7. Payments and debt
 
 Payment methods are configured per business and only active methods appear at checkout. V1 records payment methods; it does not directly connect to mobile-money providers.
@@ -194,6 +288,35 @@ sum(payment_amounts) = amount_settled
 
 A debt sale records only a free-text debtor name and the amount owed. It does not create a customer account, CRM profile, customer history, or collection workflow.
 
+**As built in Phase 4.** `PaymentMethod` belongs to a business and carries a
+`PaymentMethodKind` — `CASH`, `MOBILE_MONEY`, `BANK`, `DEBT`, or `OTHER`. The
+**kind drives the arithmetic and comes from the stored record, never from the
+request**: only `CASH` accepts `cashReceivedTzs` and produces change, and only
+`DEBT` accepts a `debtorName`. A client cannot label an M-Pesa payment as cash
+to make Shoprex calculate change for money nobody handed over.
+
+Every business is created with three methods — **Taslimu**, **Pesa ya simu**,
+and **Deni** — in the same transaction that creates the business, so no shop
+exists without the ability to take money. They are deliberately generic rather
+than named after providers: doc 01 §7 says a shop *configures* what it accepts,
+and seeding "Airtel Money" would put words in the mouth of a shop that does not
+use it. `GET /payment-methods` returns only **active** ones, and the sale
+command refuses an inactive one, which is what makes doc 01 §5's "when the
+owner permits a debt sale" enforceable — an owner who does not sell on credit
+deactivates `Deni`. Editing the set is the Phase 6 settings screen.
+
+A debt is a `SalePayment` row carrying a name, not a separate ledger. At most
+one per sale: a bill is owed by one person, and two names on one bill is a
+question about who actually owes it rather than something to guess at. Payments
+must settle the total exactly — an overshoot is refused rather than treated as
+change, because change is what a *cash* customer overpaid and is a separate
+number that never touches the total.
+
+The mobile app re-implements the same two formulas in
+`mobile/src/domain/payment.ts` so the seller can see the change before handing
+it over and so a disabled confirm button can say *why*. It decides nothing: the
+backend recomputes all of it and refuses the sale if it does not add up.
+
 ## 8. Daily reporting rules
 
 The backend groups transactions by the business/branch timezone, not by the server’s timezone. V1 should default to Tanzania time unless a future multi-country configuration is approved.
@@ -210,13 +333,13 @@ The implementation may divide or rename tables, but it must preserve these conce
 | Devices | devices, enrollment tokens, device sessions | Phase 2. A device session is the JWT's `deviceId` claim rather than a stored row — V1 is online-only and has no session table |
 | Catalogue | products, units, product units, unit relationships, prices, barcodes | Phase 3. `Product`, `ProductUnit` (which carries the price), `UnitRelationship`, `Barcode`. There is no separate global unit table: a unit belongs to its product, because that is where its meaning is |
 | Stock | stock receipts, stock receipt lines, stock movements, current physical stock | Phase 3. `StockReceipt`, `StockReceiptLine`, `StockMovement` (append-only), `PhysicalStock` (one row per branch per packaging) |
-| Sales | sales, sale lines, payments, debts, receipts | Phase 4 |
-| Settings | payment methods, business settings | Phase 4 seeds the defaults; Phase 6 owns the settings screen |
-| Audit | actor, device, timestamps, idempotency records | `AuditEvent` in Phase 2 (actor, role, device, target, server-clock timestamp). Idempotency records arrive with sales in Phase 4 |
+| Sales | sales, sale lines, payments, debts, receipts | Phase 4. `Sale`, `SaleLine`, `SalePayment`. A **debt** is a payment row carrying a debtor name, not a separate ledger — V1 records a name and an amount and nothing more. A **receipt** is a view of a sale rather than a stored record: everything a receipt shows is already snapshotted on the sale, so storing it twice would only create two things that can disagree |
+| Settings | payment methods, business settings | Phase 4. `PaymentMethod`, created with the business and read-only over the API; Phase 6 owns the settings screen |
+| Audit | actor, device, timestamps, idempotency records | `AuditEvent` in Phase 2 (actor, role, device, target, server-clock timestamp), plus `SALE_COMPLETED` in Phase 4. The idempotency record is the `idempotencyKey` column on `Sale`, unique per business — a separate table would be a second place for the same fact to live |
 
 ## 10. Mandatory engine tests
 
-Tests must cover product-specific package factors, fixed conversions, cycle rejection, progressive product creation, physical stock breaking, no automatic repacking, single-unit auto-add, repeated scans, different-unit sale lines, price snapshots, conversion snapshots, cash change, mixed payment equality, debt-name capture, insufficient-stock protection, tenant isolation, permission enforcement, and idempotent sale submission.
+Tests must cover product-specific package factors, fixed conversions, cycle rejection, progressive product creation, physical stock breaking, no automatic repacking, single-unit auto-add, repeated scans, different-unit sale lines, price snapshots, conversion snapshots, cash change, mixed payment equality, debt-name capture, **negative-stock handling and the inconsistency it records** (replacing insufficient-stock refusal, per §5), tenant isolation, permission enforcement, and idempotent sale submission.
 
 ## References
 
