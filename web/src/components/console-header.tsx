@@ -1,5 +1,13 @@
-import type { AuthProfile } from '../lib/api/auth';
+import type { AuthProfile, UserRole } from '../lib/api/auth';
 import { SignOutButton } from './sign-out-button';
+
+/** What Shoprex calls each role, to its face. */
+const ROLE_LABELS: Record<UserRole, string> = {
+  PLATFORM_ADMIN: 'Msimamizi wa jukwaa · Platform admin',
+  OWNER: 'Mmiliki · Owner',
+  MANAGER: 'Meneja · Manager',
+  WORKER: 'Mfanyakazi · Worker',
+};
 
 /** Identity strip shown at the top of both consoles. */
 export function ConsoleHeader({ profile }: { profile: AuthProfile }) {
@@ -16,11 +24,13 @@ export function ConsoleHeader({ profile }: { profile: AuthProfile }) {
 
       <div className="shoprex-header__right">
         <span className={isAdmin ? 'shoprex-phase' : 'shoprex-status shoprex-status--ok'}>
-          {isAdmin ? 'Msimamizi wa jukwaa · Platform admin' : 'Mmiliki · Owner'}
+          {ROLE_LABELS[profile.role]}
         </span>
         <span className="shoprex-header__user">
           {profile.fullName}
-          <span className="shoprex-header__email">{profile.email}</span>
+          <span className="shoprex-header__email">
+            {profile.email ?? profile.businessName ?? ''}
+          </span>
         </span>
         <SignOutButton />
       </div>

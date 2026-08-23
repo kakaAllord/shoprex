@@ -21,9 +21,37 @@ API does not accept a client-supplied time for anything a report depends on.
 
 **Errors.** Every failure uses one envelope — see the \`ErrorResponseDto\` schema.
 
+**Devices.** One device belongs to exactly one worker, and Shoprex mints its
+\`device_id\` server-side at enrollment — Android exposes no reliable permanent
+hardware identifier, so a client never supplies one. Enrollment codes are
+single-use and short-lived, returned once at issue and never echoed back. A
+revoked device is refused by the backend on its very next request.
+
 **Rate limits.** Two buckets, both per client address: a default bucket over the
-API at large, and a strict bucket on \`POST /auth/login\` and \`POST /auth/signup\`.
-Exceeding either answers \`429\`.
+API at large, and a strict bucket on \`POST /auth/login\`, \`POST /auth/signup\`,
+\`POST /auth/device/login\`, and \`POST /devices/enroll\`. Exceeding either
+answers \`429\`.
+
+**Stock.** Every product carries its own package relationships: a Carton is
+6 Pieces for one product and 48 for another. Stock is reported two ways — the
+physical package state a shopkeeper would recite (\`5 Cartons + 5 Pieces\`) and
+a normalized quantity for arithmetic. Selling a Piece breaks a Carton open; the
+engine never repackages upward, because six loose Pieces are not a Carton.
+Prices are whole Tanzanian shillings, one price per unit across the business.
+
+**Barcodes.** EAN-13. A 12-digit UPC-A is accepted and widened to its EAN-13
+form, and the check digit is verified — a mis-scan answers \`400\` rather than
+being stored as a product nothing will ever match again.
+
+**Sales.** Completing a sale is one atomic command: the sale, its lines, the
+payment settlement, the payment records, and the stock movements all commit
+together or not at all. It requires an \`idempotencyKey\`, unique per business,
+so a retried request on a dropped connection returns the original sale instead
+of ringing it up twice. Every line snapshots the product name, unit name,
+price, conversion factor, and normalized quantity — a later price change or
+repackaging can never rewrite a completed sale. Payments must settle the total
+exactly; change is calculated by the backend from the cash actually tendered,
+and a debt records nothing but a free-text name and the amount owed.
 
 V1 is online-only: there is no offline queue, outbox, or sync endpoint.`;
 
@@ -49,6 +77,22 @@ export function buildOpenApiDocument(
     .addTag('auth', 'Owner self-registration, sign-in, and the signed-in profile.')
     .addTag('businesses', 'The tenant. Platform-admin onboarding and own-business reads.')
     .addTag('branches', 'Branches within the caller’s own business.')
+    .addTag('users', 'Delegated managers and workers, and what each may do.')
+    .addTag(
+      'devices',
+      'One Android installation per worker: enrollment, listing, and revocation.',
+    )
+    .addTag('audit', 'Who did what, from which device, and when.')
+    .addTag(
+      'products',
+      'The catalogue: products, their packagings, prices, and barcodes.',
+    )
+    .addTag('stock', 'What each branch physically holds, and deliveries into it.')
+    .addTag(
+      'payments',
+      'The methods a shop accepts. Editing them is the Phase 6 settings screen; this is the checkout sheet’s read.',
+    )
+    .addTag('sales', 'Completed sales: atomic, idempotent, and snapshotted.')
     .build();
 
   return SwaggerModule.createDocument(app, config, {

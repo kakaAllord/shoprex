@@ -17,6 +17,24 @@
 >
 > Full rules: [Branching and commits](#branching-and-commits).
 
+> ## ⚠ Ask before you act. Do not decide things on your own.
+>
+> **Propose, wait for approval, then do it.** This is the default for anything beyond the task you were actually asked to do. When in doubt, ask — the cost of one question is far lower than the cost of undoing unrequested work.
+>
+> Always ask first before:
+>
+> - **Renaming, moving, or deleting anything** — files, folders, branches, database columns.
+> - **Restoring something that is missing.** It was very likely removed on purpose. Ask before putting it back.
+> - **Adding a dependency**, changing a build tool, or changing project configuration.
+> - **Rewriting git history**, force-pushing, or changing what is tracked or ignored.
+> - **Creating files nobody asked for** — extra READMEs, notes, helper scripts, summary documents.
+> - **Making a product decision.** Those belong to the owner. Record the question in `PROGRESS.md` under "Blocked / awaiting user" and stop.
+> - **Working outside the active phase**, or building a surface a later phase owns.
+>
+> Doing the work you were asked to do — writing the code, fixing the bug, adding the test — needs no permission. Expanding the job does.
+>
+> If you notice something that looks wrong but was not part of the request, **say so and leave it alone.** Reporting it is helpful; silently "fixing" it is not.
+
 ## Mission
 
 You are contributing to Shoprex V1, a fast Android-first shop-selling and stock application for Tanzania. Shoprex consists of one NestJS backend, one Next.js web app, and one React Native (Expo) Android app. The backend is authoritative for users, devices, products, stock, sales, payments, reports, and permissions.
@@ -30,7 +48,7 @@ shoprex/
 ├── backend/      # NestJS + TypeScript API
 ├── web/          # Next.js + TypeScript web app
 ├── mobile/       # React Native (Expo) Android app
-├── docs/         # Product and engineering docs — on disk, deliberately NOT in git
+├── docs/         # Product and engineering documentation
 ├── AGENT.md
 ├── CLAUDE.md     # Agent-specific rules; defers to this file
 ├── README.md
@@ -84,8 +102,8 @@ The repository has **exactly four branches**. Do not create a fifth — no featu
 
 | Branch | Who writes to it | Purpose |
 |---|---|---|
-| `main` | nobody directly | Release trunk. Only ever reached by a merge from `staging` |
-| `staging` | nobody directly | Integration. Every test runs here before anything reaches `main` |
+| `production` | nobody directly | Release trunk. Only ever reached by a merge from `staging` |
+| `staging` | nobody directly | Integration. Every test runs here before anything reaches `production` |
 | `allord-dev` | Allord | Allord's working branch |
 | `yosia-dev` | Yosia | Yosia's working branch |
 
@@ -93,11 +111,13 @@ The flow is one direction only:
 
 ```text
 allord-dev ─┐
-            ├─► staging ─► main
+            ├─► staging ─► production
 yosia-dev ──┘
 ```
 
-Work is committed to the author's own dev branch. A merge into `staging` is where the full test suite is run; only after it passes does `staging` merge into `main`. Never commit straight to `staging` or `main`, and never merge one dev branch into the other — they meet in `staging`, not in each other.
+Work is committed to the author's own dev branch. A merge into `staging` is where the full test suite is run; only after it passes does `staging` merge into `production`. Never commit straight to `staging` or `production`, and never merge one dev branch into the other — they meet in `staging`, not in each other.
+
+The release trunk is called **`production`**, not `main` — renamed on 2026-08-23 at the owner's instruction, when the repository was first pushed to `github.com:kakaAllord/shoprex`. It is the repository's default branch. Nothing else about the flow changed.
 
 ### Ask who is committing, every time
 
@@ -111,6 +131,27 @@ The only exception is an explicit instruction naming the branch ("commit this to
 
 Confirm the branch is the author's own dev branch, run the full test suite, and never commit build output (`dist/`, `.next/`, `node_modules/`, `mobile/android/`, `mobile/ios/`) or any `.env` file. `mobile/app.json` **is** tracked and must be committed — it carries the EAS `projectId`.
 
+### Commit messages
+
+Write a clear subject line and, where it helps, a body explaining **why** the change was made rather than restating what the diff shows.
+
+**No trailers, no attribution noise.** Do not add `Co-Authored-By`, `Generated with`, `Signed-off-by`, tool advertisements, emoji banners, or any similar footer. The commit message ends with its last sentence. The work is the developer's; the tooling does not sign it.
+
+## Keep the documentation current
+
+**A change is not finished until the documentation that describes it is updated in the same commit.** Documentation that lags behind the code is worse than no documentation, because it is trusted and wrong.
+
+| When you change | Update |
+|---|---|
+| An API route, its payload, or its auth | `README.md`'s API surface table, and the route's OpenAPI annotations |
+| The Prisma schema, or a domain rule | `docs/v1/02_SHOPREX_V1_ENGINE_AND_MATH.md` |
+| Phase status, decisions, blockers, known issues | `PROGRESS.md` — both the master table and the phase's own section |
+| Product behaviour a user would notice | `docs/v1/01_SHOPREX_V1_PRODUCT_CONCEPT.md` |
+| Setup, commands, environment variables, ports | `README.md`, and `.env.example` if a variable changed |
+| Repository rules, workflow, or agent behaviour | `AGENT.md` and `CLAUDE.md` |
+
+If a change makes an existing document wrong and you are not sure how it should read, **say so and ask** — do not leave the stale text standing, and do not rewrite the owner's document on a guess.
+
 ## Phase completion protocol
 
 When the acceptance checks for the active phase pass:
@@ -118,8 +159,40 @@ When the acceptance checks for the active phase pass:
 1. Run the full test suite and record the exact commands and results.
 2. Review changed files for dead buttons, placeholder data, broken navigation, and unauthorized API access.
 3. Update `PROGRESS.md`: flip the row in the master table (Part A), and append the detail section (Part B) — status, completed work, files changed, tests, decisions, known issues, next action. Never delete a prior phase's section.
-4. Do not mark a phase complete if a core acceptance check is unverified, and do not mark it complete in the table while its detail section describes an open failure.
-5. Leave a short handoff note describing any non-obvious implementation choice.
+4. **Hand over a QA walkthrough of what the phase now lets a person do** — see below. This is not optional, and it is not the same as reporting that the tests passed.
+5. Do not mark a phase complete if a core acceptance check is unverified, and do not mark it complete in the table while its detail section describes an open failure.
+6. Leave a short handoff note describing any non-obvious implementation choice.
+
+### Hand over a QA walkthrough, every phase
+
+**A green test suite is not a working product.** The tests run against stubs, fakes, and a local database. They never see a real camera, a real thumb on a small button, a network dying mid-sale, or a shopkeeper wondering what a screen means. Those are the failures that reach a pilot shop.
+
+So when a phase's acceptance checks pass, **hand over a walkthrough of what this phase now lets a person do** — and put the same thing in that phase's `PROGRESS.md` section under a `#### Manual testing` heading. In conversation only is not enough: the message is gone next session, and whoever does the testing may not be whoever read it.
+
+#### The shape it must take
+
+**Organise it by feature, not by file, screen, or test.** Each entry is one thing the product can now do that it could not do before this phase, named the way the person using it would name it — *"a worker can sell an item by scanning it"*, not *"SaleScreen barcode path"*.
+
+For each feature, write a **numbered walkthrough**: where to go, what to do, and **what should appear after each step**. Write it for someone who was not there when it was built and does not know the code:
+
+> **Feature 3 — Selling an item by scanning it**
+> 1. On the phone, tap **Mauzo**. → The cart is empty and says so.
+> 2. Tap **Soma**. → Android asks for camera permission the first time. Allow it.
+> 3. Point the camera at the barcode. → The item drops into the cart at quantity 1, with its price.
+> 4. Scan the same barcode three more times. → Still **one** line, now quantity 4 — not four lines.
+
+A step with no arrow is not a test. If you cannot say what should appear, you do not yet know whether it works.
+
+#### What every walkthrough needs
+
+- **The setup to reach the starting line**, spelled out. Which services to start, which account to sign in as, what has to exist first. If a step needs something a later phase owns the screen for, say exactly how to do it in the meantime — through `/docs`, the seed, or a script — with the route and the request body.
+- **The features in the order a real person meets them**, so the whole thing can be walked start to finish in one sitting.
+- **What should be refused**, tried deliberately, and whether the refusal reads clearly to the person it is shown to.
+- **The states nobody has looked at**: loading, empty, error, permission-denied. They pass in a test and can still be unreadable on a five-inch screen.
+- **Anything the tests faked.** A mocked native module has never actually run. Say which features rest on one, and say it in the walkthrough rather than burying it in known issues.
+- **Whether a new build is needed** before any of it can be tried, and the exact command.
+
+Mark each feature **must pass before the phase is trusted** or **worth a look**, so someone with twenty minutes knows where to spend them. Close with the short honest list of what has no automated coverage at all — those are the features where manual testing is not a double-check but the only check there has ever been.
 
 ## When blocked
 

@@ -42,16 +42,18 @@ export class JwtAuthGuard implements CanActivate {
     try {
       const payload = await this.jwtService.verifyAsync<{
         sub: string;
-        email: string;
+        email: string | null;
         role: AuthenticatedUser['role'];
         businessId: string | null;
+        deviceId?: string | null;
       }>(token);
 
       const user: AuthenticatedUser = {
         userId: payload.sub,
-        email: payload.email,
+        email: payload.email ?? null,
         role: payload.role,
         businessId: payload.businessId ?? null,
+        deviceId: payload.deviceId ?? null,
       };
 
       (request as Request & { user: AuthenticatedUser }).user = user;

@@ -1,10 +1,20 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Post,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiParam,
   ApiTags,
   ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
@@ -18,13 +28,16 @@ import {
   AuthenticatedProfile,
   AuthService,
   DevCredential,
+  DeviceSignInOption,
   LoginResult,
 } from './auth.service';
 import {
   AuthenticatedProfileDto,
   DevCredentialDto,
+  DeviceSignInOptionDto,
   LoginResultDto,
 } from './dto/auth-response.dto';
+import { DeviceLoginDto } from './dto/device-login.dto';
 import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
 
@@ -83,6 +96,61 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   login(@Body() dto: LoginDto): Promise<LoginResult> {
     return this.authService.login(dto.email, dto.password);
+  }
+
+  /**
+   * Who may sign in on this phone. Unauthenticated by necessity — it is what
+   * the sign-in screen shows before anybody has signed in — so it sits in the
+   * strict auth rate-limit bucket like every other route a phone reaches
+   * without a token.
+   */
+  @ApiOperation({
+    summary: 'People who may sign in on this device',
+    description:
+      'The names the sign-in screen offers. A device belongs to a **branch**, so this lists the people assigned to that branch, plus the business owner, who reaches every branch.\n\nIt returns names and ids and nothing else — no password, no email, no permissions. Whoever holds the handset learns who works at that branch, which is a deliberate disclosure confined to one branch of one business by the `device_id`. A revoked or unknown device answers **401** and learns nothing.',
+  })
+  @ApiParam({ name: 'deviceId', format: 'uuid' })
+  @ApiOkResponse({ type: [DeviceSignInOptionDto] })
+  @ApiUnauthorizedResponse({
+    type: ErrorResponseDto,
+    description: 'Unknown or revoked device — indistinguishable by design.',
+  })
+  @ApiTooManyRequestsResponse({
+    type: ErrorResponseDto,
+    description: 'Strict auth rate-limit bucket exceeded.',
+  })
+  @Public()
+  @Get('device/:deviceId/people')
+  signInOptions(
+    @Param('deviceId', ParseUUIDPipe) deviceId: string,
+  ): Promise<DeviceSignInOption[]> {
+    return this.authService.deviceSignInOptions(deviceId);
+  }
+
+  /**
+   * Signing in on a shop phone. Same strict rate-limit bucket as the email
+   * sign-in: this endpoint accepts a password too.
+   */
+  @ApiOperation({
+    summary: 'Sign in on an enrolled device',
+    description:
+      'The phone sends the `device_id` it stored at enrollment, **who is signing in**, and that person’s own password. No email, because workers do not have one.\n\nA device belongs to a branch rather than to one worker, so the handset no longer says who is holding it and the request must. The person has to be assigned to that phone’s branch, or be the owner of the business. A revoked device, an unknown device, someone from another branch, and a wrong password are rejected identically. The returned token carries the device, so revoking the phone ends the session on its next request.',
+  })
+  @ApiOkResponse({ type: LoginResultDto })
+  @ApiUnauthorizedResponse({
+    type: ErrorResponseDto,
+    description:
+      'Unknown device, revoked device, unknown or deactivated person, someone not assigned to that branch, or a wrong password — indistinguishable by design.',
+  })
+  @ApiTooManyRequestsResponse({
+    type: ErrorResponseDto,
+    description: 'Strict auth rate-limit bucket exceeded.',
+  })
+  @Public()
+  @Post('device/login')
+  @HttpCode(HttpStatus.OK)
+  deviceLogin(@Body() dto: DeviceLoginDto): Promise<LoginResult> {
+    return this.authService.loginDevice(dto.deviceId, dto.userId, dto.password);
   }
 
   @ApiOperation({

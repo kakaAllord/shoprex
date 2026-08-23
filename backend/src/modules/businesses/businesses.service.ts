@@ -1,9 +1,10 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../database/prisma.service';
 import { AuthService } from '../auth/auth.service';
+import { createDefaultPaymentMethods } from '../payments/payment-methods.defaults';
 import { CreateBusinessDto } from './dto/create-business.dto';
 
 export interface BusinessSummary {
@@ -23,6 +24,8 @@ export interface BusinessDetail extends BusinessSummary {
 
 @Injectable()
 export class BusinessesService {
+  private readonly logger = new Logger(BusinessesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
@@ -55,6 +58,10 @@ export class BusinessesService {
         },
       });
 
+      // In the same transaction, so a shop is never left existing but unable
+      // to take money.
+      await createDefaultPaymentMethods(tx, created.id);
+
       return created;
     });
 
@@ -77,6 +84,51 @@ export class BusinessesService {
       branchCount: business._count.branches,
       userCount: business._count.users,
     }));
+  }
+
+  /**
+   * Suspends or restores a shop account. Platform administrators only.
+   *
+   * Nothing is deleted and nothing cascades: the products, stock, sales, and
+   * history stay exactly as they are, and restoring the account brings the
+   * shop back whole. Suspension is a door being locked, not a demolition —
+   * which is what makes it a safe thing for a platform administrator to do.
+   *
+   * It takes effect immediately in both directions. Sign-in already refuses a
+   * suspended shop, and `BusinessActiveGuard` refuses the tokens that were
+   * already issued before it happened.
+   *
+   * No audit row is written. `AuditEvent` is the *owner's* attribution log for
+   * their own business, and in V1 nothing reads it on a platform
+   * administrator's behalf — the owner of a suspended shop cannot even sign in
+   * to look. An audit row nobody can read is scaffolding, so this is a server
+   * log line instead, and the decision is recorded in PROGRESS.md §6.
+   */
+  async setActive(businessId: string, isActive: boolean): Promise<BusinessDetail> {
+    const existing = await this.prisma.business.findUnique({
+      where: { id: businessId },
+      select: { id: true, name: true, isActive: true },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Business not found');
+    }
+
+    if (existing.isActive === isActive) {
+      throw new ConflictException(
+        isActive
+          ? 'That shop account is already active'
+          : 'That shop account is already suspended',
+      );
+    }
+
+    await this.prisma.business.update({ where: { id: businessId }, data: { isActive } });
+
+    this.logger.warn(
+      `Business ${isActive ? 'restored' : 'suspended'}: ${existing.name} (${businessId})`,
+    );
+
+    return this.detail(businessId);
   }
 
   /**

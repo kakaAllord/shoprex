@@ -1,43 +1,90 @@
-import { redirect } from 'next/navigation';
-import { BranchForm } from '../../components/branch-form';
-import { ConsoleHeader } from '../../components/console-header';
-import { consolePath } from '../../lib/api/auth';
+import Link from 'next/link';
+import { ConsoleShell } from '../../components/console-shell';
+import { ErrorState, Panel } from '../../components/states';
+import { requireConsole, isOwner } from '../../lib/api/guard';
+import { fetchDevices } from '../../lib/api/devices';
 import { fetchMyBranches, fetchMyBusiness } from '../../lib/api/organization';
-import { currentProfile, readSessionToken } from '../../lib/api/session';
+import { fetchProducts } from '../../lib/api/products';
+import { fetchStaff } from '../../lib/api/staff';
 
 export const dynamic = 'force-dynamic';
 
-/** Owner console: one business, scoped on the server by the session token. */
+/**
+ * The owner's front door.
+ *
+ * Deliberately counts and doors, **not money**. Daily takings, payment
+ * breakdowns, and branch comparisons are Phase 7's dashboard, and building a
+ * smaller version of them here would mean two places doing local-day
+ * arithmetic — which is exactly how the two come to disagree.
+ */
 export default async function OwnerPage() {
-  const profile = await currentProfile();
+  const { profile, token } = await requireConsole('owner');
 
-  if (!profile) {
-    redirect('/login');
+  let business;
+  let branches;
+  let staff;
+  let devices;
+  let products;
+
+  try {
+    [business, branches, staff, devices, products] = await Promise.all([
+      fetchMyBusiness(token),
+      fetchMyBranches(token),
+      fetchStaff(token),
+      fetchDevices(token),
+      fetchProducts(token),
+    ]);
+  } catch (error) {
+    return (
+      <ConsoleShell profile={profile} current="/owner" title="Muhtasari">
+        <ErrorState error={error} retryHref="/owner" />
+      </ConsoleShell>
+    );
   }
 
-  if (profile.console !== 'owner') {
-    redirect(consolePath(profile.console));
-  }
-
-  const token = (await readSessionToken())!;
-  const [business, branches] = await Promise.all([
-    fetchMyBusiness(token),
-    fetchMyBranches(token),
-  ]);
+  const activeDevices = devices.filter((device) => device.status === 'ACTIVE');
 
   return (
-    <main className="shoprex-shell">
-      <ConsoleHeader profile={profile} />
+    <ConsoleShell
+      profile={profile}
+      current="/owner"
+      title={business.name}
+      lede={
+        isOwner(profile)
+          ? 'Duka lako kwa ujumla. Ripoti za siku na PDF zinakuja katika awamu inayofuata. Your shop at a glance — daily reports and PDFs arrive in the next phase.'
+          : 'Matawi uliyokabidhiwa. Mmiliki ndiye anayeongeza matawi, wafanyakazi, simu na njia za malipo. The branches delegated to you.'
+      }
+    >
+      <div className="shoprex-metrics">
+        <div className="shoprex-metric">
+          <Link href="/owner/branches">
+            <div className="shoprex-metric__value">{branches.length}</div>
+            <div className="shoprex-metric__label">
+              {isOwner(profile) ? 'Matawi · Branches' : 'Matawi yako · Your branches'}
+            </div>
+          </Link>
+        </div>
+        <div className="shoprex-metric">
+          <Link href="/owner/staff">
+            <div className="shoprex-metric__value">{staff.length}</div>
+            <div className="shoprex-metric__label">Wafanyakazi · Staff</div>
+          </Link>
+        </div>
+        <div className="shoprex-metric">
+          <Link href="/owner/devices">
+            <div className="shoprex-metric__value">{activeDevices.length}</div>
+            <div className="shoprex-metric__label">Simu hai · Active phones</div>
+          </Link>
+        </div>
+        <div className="shoprex-metric">
+          <Link href="/owner/products">
+            <div className="shoprex-metric__value">{products.length}</div>
+            <div className="shoprex-metric__label">Bidhaa · Products on sale</div>
+          </Link>
+        </div>
+      </div>
 
-      <h1 className="shoprex-title">{business.name}</h1>
-      <p className="shoprex-lede">
-        Muhtasari wa duka lako. Bidhaa, stoo, wafanyakazi, vifaa na ripoti
-        zitajengwa katika awamu zinazofuata. Your shop overview — products, stock,
-        workers, devices, and reports arrive in later phases.
-      </p>
-
-      <section className="shoprex-card">
-        <h2 className="shoprex-card__title">Shoprex · Business</h2>
+      <Panel title="Duka · Business">
         <dl className="shoprex-kv">
           <dt>Jina · Name</dt>
           <dd>{business.name}</dd>
@@ -48,36 +95,25 @@ export default async function OwnerPage() {
           <dt>Watumiaji · Users</dt>
           <dd>{business.userCount}</dd>
         </dl>
-      </section>
+      </Panel>
 
-      <section className="shoprex-card">
-        <h2 className="shoprex-card__title">Matawi · Branches ({branches.length})</h2>
-
-        {branches.length === 0 ? (
-          <p className="shoprex-note" style={{ marginTop: 0 }}>
-            Hakuna tawi bado · No branches yet. Ongeza tawi lako la kwanza hapa chini.
-          </p>
-        ) : (
-          <ul className="shoprex-list">
-            {branches.map((branch) => (
-              <li key={branch.id}>
-                <span>{branch.name}</span>
-                <span
-                  className={
-                    branch.isActive
-                      ? 'shoprex-status shoprex-status--ok'
-                      : 'shoprex-status shoprex-status--warn'
-                  }
-                >
-                  {branch.isActive ? 'Hai · Active' : 'Imesimamishwa'}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <BranchForm />
-      </section>
-    </main>
+      <Panel title={`Matawi · Branches (${branches.length})`}>
+        <ul className="shoprex-list">
+          {branches.map((branch) => (
+            <li key={branch.id}>
+              <span>{branch.name}</span>
+              <span className="shoprex-rowactions">
+                <Link className="shoprex-linkbutton" href={`/owner/sales?branch=${branch.id}`}>
+                  Mauzo
+                </Link>
+                <Link className="shoprex-linkbutton" href={`/owner/stock?branch=${branch.id}`}>
+                  Stoo
+                </Link>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </Panel>
+    </ConsoleShell>
   );
 }

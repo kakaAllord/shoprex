@@ -1,6 +1,11 @@
 import { render, screen, waitFor } from '@testing-library/react-native';
-import App from '../../app/App';
 import { ApiClient } from '../../core/api/apiClient';
+import { HealthScreen } from './HealthScreen';
+
+// Phase 4 gave the app real screens, so the connection check is no longer what
+// the app opens on — it is reached from Enrol and Sign in, for a phone that
+// cannot see the shop's server. It is rendered directly here; the routing that
+// gets to it is covered in App.test.tsx.
 
 const baseUrl = 'http://api.test/api/v1';
 
@@ -25,7 +30,7 @@ const healthyPayload = {
 
 describe('HealthScreen', () => {
   it('shows the healthy backend state', async () => {
-    render(<App apiClient={clientReturning(healthyPayload)} />);
+    render(<HealthScreen apiClient={clientReturning(healthyPayload)} />);
 
     expect(screen.getByText('Karibu Shoprex')).toBeTruthy();
 
@@ -46,7 +51,7 @@ describe('HealthScreen', () => {
       503,
     );
 
-    render(<App apiClient={client} />);
+    render(<HealthScreen apiClient={client} />);
 
     await waitFor(() => {
       expect(screen.getByText(/Database down/)).toBeTruthy();
@@ -61,7 +66,7 @@ describe('HealthScreen', () => {
         .mockRejectedValue(new Error('Connection refused')) as unknown as typeof fetch,
     });
 
-    render(<App apiClient={client} />);
+    render(<HealthScreen apiClient={client} />);
 
     await waitFor(() => {
       expect(screen.getByText(/Backend unreachable/)).toBeTruthy();

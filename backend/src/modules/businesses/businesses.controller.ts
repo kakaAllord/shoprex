@@ -1,11 +1,13 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiForbiddenResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
@@ -18,6 +20,7 @@ import { BEARER_AUTH } from '../../docs/swagger';
 import { BusinessDetail, BusinessesService, BusinessSummary } from './businesses.service';
 import { BusinessDetailDto, BusinessSummaryDto } from './dto/business-response.dto';
 import { CreateBusinessDto } from './dto/create-business.dto';
+import { UpdateBusinessStatusDto } from './dto/update-business-status.dto';
 
 @ApiTags('businesses')
 @ApiBearerAuth(BEARER_AUTH)
@@ -60,6 +63,32 @@ export class BusinessesController {
   @Get()
   list(): Promise<BusinessSummary[]> {
     return this.businessesService.listAll();
+  }
+
+  @ApiOperation({
+    summary: 'Suspend or restore a shop account',
+    description:
+      'Platform administrators only. Suspending a shop locks it immediately in every direction at once: nobody in it can sign in, no phone can redeem an enrollment code, and every session token already in circulation is refused on its very next request — an account that is suspended everywhere except in the sessions already open is not suspended.\n\n**Nothing is deleted.** Products, stock, sales, and history stay exactly as they are, and restoring the account brings the shop back whole. That is what makes it safe to do.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: BusinessDetailDto })
+  @ApiForbiddenResponse({
+    type: ErrorResponseDto,
+    description: 'The caller is not a platform administrator.',
+  })
+  @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'No such shop account.' })
+  @ApiConflictResponse({
+    type: ErrorResponseDto,
+    description:
+      'That shop is already in the state asked for. Said rather than silently succeeded, so an administrator knows whether they just suspended it or somebody else already had.',
+  })
+  @Roles(UserRole.PLATFORM_ADMIN)
+  @Patch(':id')
+  setActive(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateBusinessStatusDto,
+  ): Promise<BusinessDetail> {
+    return this.businessesService.setActive(id, dto.isActive);
   }
 
   /** The caller's own business. Owners and managers never pass an id. */
