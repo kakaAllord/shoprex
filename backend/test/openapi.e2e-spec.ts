@@ -95,6 +95,15 @@ describe('OpenAPI contract (e2e)', () => {
       ['/api/v1/devices/{id}', 'get'],
       ['/api/v1/devices/{id}/revoke', 'post'],
       ['/api/v1/audit-events', 'get'],
+      // Phase 3 — catalogue and stock.
+      ['/api/v1/products', 'post'],
+      ['/api/v1/products', 'get'],
+      ['/api/v1/products/lookup', 'get'],
+      ['/api/v1/products/{id}', 'get'],
+      ['/api/v1/products/{id}/units', 'post'],
+      ['/api/v1/branches/{branchId}/stock-receipts', 'post'],
+      ['/api/v1/branches/{branchId}/stock', 'get'],
+      ['/api/v1/branches/{branchId}/stock/{productId}', 'get'],
     ];
 
     it.each(expected)('documents %s %s', (path, method) => {
@@ -139,6 +148,14 @@ describe('OpenAPI contract (e2e)', () => {
       ['/api/v1/devices/{id}', 'get'],
       ['/api/v1/devices/{id}/revoke', 'post'],
       ['/api/v1/audit-events', 'get'],
+      ['/api/v1/products', 'post'],
+      ['/api/v1/products', 'get'],
+      ['/api/v1/products/lookup', 'get'],
+      ['/api/v1/products/{id}', 'get'],
+      ['/api/v1/products/{id}/units', 'post'],
+      ['/api/v1/branches/{branchId}/stock-receipts', 'post'],
+      ['/api/v1/branches/{branchId}/stock', 'get'],
+      ['/api/v1/branches/{branchId}/stock/{productId}', 'get'],
     ] as [string, HttpMethod][])(
       'marks %s %s as requiring a bearer token',
       (path, method) => {
@@ -222,6 +239,14 @@ describe('OpenAPI contract (e2e)', () => {
      * that test is the mistake this pinning exists to make visible.
      */
     const MAY_NAME_A_BRANCH = ['CreateWorkerDto', 'CreateManagerDto'];
+
+    it('keeps stock’s branch in the URL rather than the body', () => {
+      // Stock belongs to a branch, so the branch is a path segment. That is
+      // also what keeps this allowlist from growing: receiving a delivery
+      // never needed to name a branch in a request body.
+      expect(propertiesOf('CreateStockReceiptDto')).toEqual(['lines', 'note']);
+      expect(document.paths['/api/v1/branches/{branchId}/stock-receipts']).toBeDefined();
+    });
 
     it('accepts a branch id only where the owner must choose one', () => {
       const naming = requestBodySchemas().filter((name) =>

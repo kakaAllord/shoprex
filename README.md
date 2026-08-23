@@ -129,7 +129,7 @@ proving a branch from another tenant answers `404` rather than becoming an
 assignment. Adding a DTO to that list without such a test is exactly what the
 pinning exists to make visible.
 
-### API surface (Phases 1–2)
+### API surface (Phases 1–3)
 
 | Endpoint | Auth | Purpose |
 |---|---|---|
@@ -158,6 +158,14 @@ pinning exists to make visible.
 | `GET /api/v1/devices/:id` | owner/manager | Another tenant's device answers `404`, never `403` |
 | `POST /api/v1/devices/:id/revoke` | owner | Refuses that phone at the backend on its very next request |
 | `GET /api/v1/audit-events` | owner | Who did what, from which device, and when |
+| `POST /api/v1/products` | SELL or RECEIVE_STOCK | Add a product; a worker may, so unknown items are addable mid-sale |
+| `GET /api/v1/products` | any staff | Manual search suggestions; matches anywhere in the name |
+| `GET /api/v1/products/lookup` | any staff | Barcode lookup (EAN-13); a mis-scan answers `400`, an unknown code `404` |
+| `GET /api/v1/products/:id` | any staff | Another tenant's product answers `404`, never `403` |
+| `POST /api/v1/products/:id/units` | SELL or RECEIVE_STOCK | Add a packaging later — progressive enrichment |
+| `POST /api/v1/branches/:branchId/stock-receipts` | RECEIVE_STOCK | Record a delivery into that branch, all-or-nothing |
+| `GET /api/v1/branches/:branchId/stock` | VIEW_STOCK | What the branch holds, physical packages plus normalized |
+| `GET /api/v1/branches/:branchId/stock/:productId` | VIEW_STOCK | One product, answering `0` rather than `404` when there is none |
 
 Every error uses one envelope, shared by both clients:
 
@@ -200,6 +208,42 @@ still-unexpired token stops working immediately.
 The code is a secret: it is returned once at issue, stored only as a SHA-256
 hash, never echoed back, and kept out of the audit log. Both public device
 routes sit in the strict auth rate-limit bucket.
+
+**Permissions.** `SELL`, `RECEIVE_STOCK`, `VIEW_STOCK`, and `VIEW_REPORTS` are
+granted per person by the owner and enforced by `PermissionsGuard` on the
+server. A guarded route reads them from the database on each request rather
+than from the token, so taking a permission away takes effect immediately
+instead of whenever an eight-hour token expires. Owners are never checked
+against these — within their own business they are the authority that grants
+them. Where a route accepts more than one, it means *any of*, because adding an
+unknown item mid-sale must work for a seller as well as a stock keeper.
+
+**The stock engine.** Package relationships belong to the product: `1 Carton =
+6 Pieces` for one product and `1 Carton = 48 Pieces` for another. A product's
+units form a tree whose leaf is the base unit, and the engine refuses anything
+that is not one — a cycle, a self-reference, a unit given two parents, or units
+that do not connect. Fixed measurement conversions (`1 kg = 1000 g`, `1 L =
+1000 ml`, `1 m = 100 cm`, `1 dozen = 12`) cannot be redefined by a business.
+
+Stock is kept two ways. The **physical package state** is what a shopkeeper
+would recite — `5 Cartons + 5 Pieces` — and the **normalized quantity** is the
+same holding as one number in base units, for arithmetic. Selling a Piece with
+none loose breaks a Carton open; the engine **never repackages upward**, so six
+loose Pieces stay six loose Pieces and cannot be sold as a Carton. A movement
+that would overdraw the branch fails safely and changes nothing.
+
+The arithmetic lives in [backend/src/domain/](backend/src/domain/) — `units.ts`,
+`stock.ts`, `barcode.ts` — as pure functions with no database or HTTP in sight,
+and it is the most heavily tested part of the codebase. Keep it there.
+
+**Prices** are whole Tanzanian shillings, stored as integers: TZS is not divided
+into subunits in practice, and money that cannot be represented exactly
+eventually disagrees with itself. One price per unit across the business.
+
+**Barcodes** are EAN-13. A 12-digit UPC-A is accepted and widened to its EAN-13
+form — that is what it already means — and the check digit is verified, so a
+mis-scan is refused rather than stored as a product nothing will ever match.
+Barcodes are unique per tenant, not globally: two shops may stock the same item.
 
 **Phone numbers.** Owners register with a Tanzanian mobile number in any
 spelling — `0712345678`, `+255712345678`, `255 712 345 678` — and it is stored

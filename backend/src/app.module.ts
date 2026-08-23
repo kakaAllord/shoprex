@@ -4,12 +4,15 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { DeviceSessionGuard } from './common/guards/device-session.guard';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { PermissionsGuard } from './common/guards/permissions.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { BranchesModule } from './modules/branches/branches.module';
 import { BusinessesModule } from './modules/businesses/businesses.module';
 import { DevicesModule } from './modules/devices/devices.module';
+import { ProductsModule } from './modules/products/products.module';
+import { StockModule } from './modules/stock/stock.module';
 import { UsersModule } from './modules/users/users.module';
 import { appConfiguration } from './config/configuration';
 import { validateEnvironment } from './config/env.validation';
@@ -22,7 +25,8 @@ import { HealthModule } from './modules/health/health.module';
  * Feature modules (auth, businesses, branches, users, devices, audit,
  * products, stock, sales, payments, reports) are added from Phase 1 onward.
  * Keep every business rule inside a module or the domain layer, never in a
- * controller.
+ * controller — the package and stock arithmetic lives in src/domain and is
+ * tested without a database or an HTTP request in sight.
  */
 @Module({
   imports: [
@@ -53,6 +57,8 @@ import { HealthModule } from './modules/health/health.module';
     BranchesModule,
     UsersModule,
     DevicesModule,
+    ProductsModule,
+    StockModule,
     HealthModule,
   ],
   providers: [
@@ -66,6 +72,9 @@ import { HealthModule } from './modules/health/health.module';
     // any role check gets the chance to let it through.
     { provide: APP_GUARD, useClass: DeviceSessionGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    // Last: role decides whether you may reach the route at all, permission
+    // decides whether you may do this particular thing once you have.
+    { provide: APP_GUARD, useClass: PermissionsGuard },
   ],
 })
 export class AppModule {}

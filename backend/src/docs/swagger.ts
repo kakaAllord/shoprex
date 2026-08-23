@@ -32,6 +32,17 @@ API at large, and a strict bucket on \`POST /auth/login\`, \`POST /auth/signup\`
 \`POST /auth/device/login\`, and \`POST /devices/enroll\`. Exceeding either
 answers \`429\`.
 
+**Stock.** Every product carries its own package relationships: a Carton is
+6 Pieces for one product and 48 for another. Stock is reported two ways — the
+physical package state a shopkeeper would recite (\`5 Cartons + 5 Pieces\`) and
+a normalized quantity for arithmetic. Selling a Piece breaks a Carton open; the
+engine never repackages upward, because six loose Pieces are not a Carton.
+Prices are whole Tanzanian shillings, one price per unit across the business.
+
+**Barcodes.** EAN-13. A 12-digit UPC-A is accepted and widened to its EAN-13
+form, and the check digit is verified — a mis-scan answers \`400\` rather than
+being stored as a product nothing will ever match again.
+
 V1 is online-only: there is no offline queue, outbox, or sync endpoint.`;
 
 /** Builds the OpenAPI document. Exported so tests can assert on the contract. */
@@ -62,6 +73,11 @@ export function buildOpenApiDocument(
       'One Android installation per worker: enrollment, listing, and revocation.',
     )
     .addTag('audit', 'Who did what, from which device, and when.')
+    .addTag(
+      'products',
+      'The catalogue: products, their packagings, prices, and barcodes.',
+    )
+    .addTag('stock', 'What each branch physically holds, and deliveries into it.')
     .build();
 
   return SwaggerModule.createDocument(app, config, {

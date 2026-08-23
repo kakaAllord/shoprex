@@ -13,7 +13,7 @@ If Part A and Part B ever disagree (e.g. the table says "Complete" but a section
 | 0 | Decisions and design lock | Complete | Yes | 2026-08-20 |
 | 1 | Repository and backend foundation | Complete | Yes — re-verified 2026-08-22, see §1 and §1c | 2026-08-22 |
 | 2 | Owner, manager, worker, and device access | Complete | Yes — every criterion driven end to end over HTTP, see §2 | 2026-08-22 |
-| 3 | Product, barcode, pricing, and stock engine | Not started | — | — |
+| 3 | Product, barcode, pricing, and stock engine | Complete | Yes — the named scenario runs as a test, in the engine and over HTTP, see §3 | 2026-08-23 |
 | 4 | React Native mobile selling flow | Not started | — | — |
 | 5 | React Native stock receiving and operational visibility | Not started | — | — |
 | 6 | Next.js owner and admin web app | Not started | — | — |
@@ -22,9 +22,9 @@ If Part A and Part B ever disagree (e.g. the table says "Complete" but a section
 
 **Status values:** `Not started` / `In progress` / `Blocked` / `Complete`. Only mark `Complete` when the acceptance-check column says `Yes`, backed by a real test run referenced in that phase's section below.
 
-**Active phase:** Phase 3, not yet started. Phase 2 closed on 2026-08-22 with 270 automated tests passing across all three surfaces — see §2. Mobile stack changed to React Native after Phase 1 closed (§1a); Phase 1 was independently re-verified before any Phase 2 code (§1c).
+**Active phase:** Phase 4, not yet started. Phase 3 closed on 2026-08-23 with 422 automated tests passing across all three surfaces — see §3. Mobile stack changed to React Native after Phase 1 closed (§1a); Phase 1 was independently re-verified before any Phase 2 code (§1c).
 
-**Exact next action:** begin Phase 3's product, unit, and package-relationship models per `docs/v1/03_SHOPREX_V1_IMPLEMENTATION_PHASES.md`, and mark the Phase 3 row `In progress` when that work starts. Nothing blocks it: the barcode format was settled on 2026-08-22 as **EAN-13** — see §3.
+**Exact next action:** begin Phase 4's React Native selling flow per `docs/v1/03_SHOPREX_V1_IMPLEMENTATION_PHASES.md`, and mark the Phase 4 row `In progress` when that work starts. Nothing blocks it. Start with the backend side — `Sale`, `SaleLine`, payments, the seeded payment-method set, and sale idempotency — building on `StockService.issueStock`, which Phase 3 deliberately left without an HTTP route for exactly this reason. See §3's handoff notes before writing any of it.
 
 ---
 
@@ -432,7 +432,7 @@ Nothing blocks Phase 2 — it is complete. Carried forward:
 
 ### §3 — Product, barcode, pricing, and stock engine
 
-**Status:** Not started. *(Populate the build record only after real work begins — the decision below is a confirmed input, not projected content.)*
+**Status:** Complete. **Verified:** Yes — the acceptance check's named scenario runs as a test twice, once against the pure engine and once end to end over HTTP, and the guarantees behind it were mutation-checked. **Date:** 2026-08-23.
 
 **Decision confirmed by the owner on 2026-08-22 — do not re-ask:**
 
@@ -440,7 +440,123 @@ Nothing blocks Phase 2 — it is complete. Carried forward:
 |---|---|
 | First barcode format | **EAN-13.** This is what the scanner accepts and what a "valid" barcode means at product creation |
 
-This closes the last open question from Phase 0, carried through §1 and §2. Every other Phase 3 rule already has a written source: package relationships, fixed conversions, cycle rejection, and physical-versus-normalized stock are all specified in `docs/v1/02_SHOPREX_V1_ENGINE_AND_MATH.md` §§4–5, and the acceptance check is in `docs/v1/03_SHOPREX_V1_IMPLEMENTATION_PHASES.md`.
+This closes the last open question from Phase 0, carried through §1 and §2. Every other Phase 3 rule already had a written source: package relationships, fixed conversions, cycle rejection, and physical-versus-normalized stock are specified in `docs/v1/02_SHOPREX_V1_ENGINE_AND_MATH.md` §§4–5.
+
+**Two further decisions confirmed by the owner on 2026-08-23, before implementation:**
+
+| Question | Decision |
+|---|---|
+| EAN-13 strictness | **Verify the check digit**, and accept a 12-digit UPC-A by widening it to its EAN-13 form. A mis-scan is refused rather than stored as a phantom product |
+| Price scope | **One price per unit, business-wide.** Adding per-branch overrides later is purely additive; no stored price would have to change |
+| Does Phase 3 sell? | **Engine-level stock issue only.** No cart, no payment, no sale record, no HTTP sale route — Phase 4 builds those on top |
+
+#### Acceptance check evidence
+
+Phase 3's acceptance check reads: *the engine correctly handles `1 Carton = 6 Pieces`, receives `6 Cartons`, sells `1 Piece`, shows `5 Cartons + 5 Pieces`, preserves normalized quantity, and refuses invalid/cyclic package relationships.*
+
+| Acceptance criterion | Where it is proven |
+|---|---|
+| `1 Carton = 6 Pieces` | `src/domain/stock.spec.ts` — "package factors belong to the product", including the same names normalising differently for a second product |
+| Receive 6 Cartons | `test/stock-engine.e2e-spec.ts` — "records the delivery in the packaging it arrived in" (36 normalized) |
+| Sell 1 Piece | same suite — "removes it through the engine, breaking a Carton open" |
+| Shows `5 Cartons + 5 Pieces` | same suite — "reads back exactly that over the API", asserting the literal string list |
+| Preserves normalized quantity | same suite — "36 in, 1 out, 35 left" |
+| **Refuses invalid/cyclic relationships** | `src/domain/units.spec.ts` (self-reference, 2-cycle, 3-cycle, cycle beside a valid base, two parents, duplicate pair, disconnected units, bad factors) and the same over HTTP in `test/stock-engine.e2e-spec.ts` |
+
+The same scenario is proven twice on purpose: once in `src/domain/stock.spec.ts` against pure functions, and once in `test/stock-engine.e2e-spec.ts` through real HTTP and real PostgreSQL. The first says the arithmetic is right; the second says the arithmetic is actually what the API runs.
+
+#### What was built
+
+**The engine, in `src/domain/`.** `units.ts` holds `UnitGraph` — validation, base-unit resolution, and the walks the stock code needs. `stock.ts` holds the physical state and `receive`/`issue`/`describeState`, every function pure. `barcode.ts` holds EAN-13 normalisation and check-digit verification. No database, no HTTP, no Nest — 102 tests over it that run in about seven seconds.
+
+**Catalogue.** `POST /products` (create with however much the shop knows), `GET /products` (search), `GET /products/lookup` (barcode), `GET /products/{id}`, `POST /products/{id}/units` (progressive enrichment).
+
+**Stock.** `POST /branches/{branchId}/stock-receipts`, `GET /branches/{branchId}/stock`, `GET /branches/{branchId}/stock/{productId}`.
+
+**Permissions are now enforced.** `PermissionsGuard` and `@RequirePermissions` ship here, gating product writes on `SELL` **or** `RECEIVE_STOCK`, receiving on `RECEIVE_STOCK`, and stock reads on `VIEW_STOCK`.
+
+#### Decisions made during the build
+
+| Question | Decision | Why |
+|---|---|---|
+| Where does the branch go on a stock route? | **In the URL** — `/branches/{branchId}/stock-receipts` | Stock genuinely belongs to a branch (doc 02 §2), and it keeps the branch out of request bodies, so §2's `MAY_NAME_A_BRANCH` allowlist did not have to grow. A test now pins that `CreateStockReceiptDto` has only `lines` and `note` |
+| Money representation | **Integer whole shillings** | TZS is not divided into subunits in practice. A representation that cannot be exact eventually disagrees with itself, and Phase 4 is about to do arithmetic on it |
+| Are permissions in the token or the database? | **Database, read per guarded request** | Consistent with Phase 2's choice for device revocation: taking `SELL` away should stop the next sale, not the next sign-in. Only guarded routes pay the lookup |
+| Do owners need permissions? | **No — the guard passes them through** | The owner is what grants these permissions; requiring them to grant themselves one is a loop with no purpose |
+| One permission or several per route? | **Any-of** | Adding an unknown item mid-sale must work for a seller *and* for a stock keeper. Demanding both would break doc 01 §5's flow |
+| Two units with the same child (Carton→Piece and Bale→Piece)? | **Refused**, in the domain and by a unique index on the child | Two routes to the base could disagree and there is no honest way to pick a winner. This is stricter than doc 02 §4 strictly requires — flagged below |
+| Which package gets broken open? | **The nearest larger one that has stock** | A Sack should not be torn apart when breaking a kg would have served |
+| A product the branch holds none of | `GET .../stock/{productId}` answers `0`, not `404` | "We have none" is a real answer on a selling screen; a 404 would read as "no such product" |
+
+#### Files changed
+
+**New** — `src/domain/units.ts`, `stock.ts`, `barcode.ts` (+ three specs), `src/common/decorators/permissions.decorator.ts`, `src/common/guards/permissions.guard.ts`, `src/modules/products/` (service, controller, module, 4 DTOs), `src/modules/stock/` (service, controller, module, 2 DTOs), `prisma/migrations/20260823090000_catalogue_and_stock/`, `test/stock-engine.e2e-spec.ts`, `test/catalogue-isolation.e2e-spec.ts`.
+
+**Changed** — `prisma/schema.prisma` (`Product`, `ProductUnit`, `UnitRelationship`, `Barcode`, `StockReceipt`, `StockReceiptLine`, `StockMovement`, `PhysicalStock`, `StockDirection`, `StockMovementReason`, three new `AuditAction` values), `app.module.ts`, `docs/swagger.ts`, `test/openapi.e2e-spec.ts`, `README.md`, `docs/v1/02` §§1/4/5/9, `PROGRESS.md`.
+
+#### Commands run and results
+
+| Command | Where | Result |
+|---|---|---|
+| `npx prisma migrate deploy` | backend | Passed — 5 migrations |
+| `npm run lint` / `typecheck` / `build` | backend | Passed, clean |
+| `npm test` | backend | Passed — **116/116** unit (was 48; +68 engine tests) |
+| `npm run test:e2e` | backend | Passed — **274/274** e2e (was 190) |
+| `npm run typecheck` / `test` / `build` | web | Passed — 20/20, build clean |
+| `npm run typecheck` / `test` | mobile | Passed — 12/12 |
+| `node dist/main.js` + `curl /docs`, `/docs-json` | backend | `200`; 33 operations, tags now include `products` and `stock` |
+
+**Total: 422 automated tests, all passing** (backend 116 + 274, web 20, mobile 12). Up from 270.
+
+#### Mutation-checked
+
+Seven guarantees were broken one at a time, the suites re-run, and each restored.
+
+| Guarantee broken | Result |
+|---|---|
+| `PermissionsGuard`'s permission check | 4 e2e tests failed |
+| The insufficient-stock check | 1 domain test failed |
+| Breaking the nearest package (no upward repack) | 1 domain test failed |
+| Cycle rejection | **initially failed nothing — see below** |
+| The barcode check digit | 2 domain + 2 e2e tests failed |
+| The branch-assignment filter on stock | 2 e2e tests failed |
+| The tenant filter on products | 25 e2e tests failed |
+
+**The cycle-rejection mutation found a weak test, which is the point of doing this.** Removing `assertAcyclic` broke nothing, because the base-unit and connectivity checks independently reject a cyclic graph — so the tests were passing on the error *type* while proving nothing about the cycle detection or the message a shop would actually see. Three cycle tests now assert the message (`/contain each other/`), including a cycle sitting beside a valid base unit, which the connectivity check alone would report as a confusing "units must connect" error. With that, the mutation fails 3 tests.
+
+Also caught during the build: `assertFixedConversionRespected` threw a raw `UnitGraphError` that escaped as a **500** instead of a 400. Both call sites now route through the same error translation as the graph build. A test found it, not a review.
+
+#### Known issues / risks
+
+1. **A unit may have only one parent.** `Carton → Piece` and `Bale → Piece` on the same product is refused, in the domain and by a unique index. Doc 02 §4 does not explicitly forbid it, so this is stricter than the letter of the spec. It is the safe direction — two routes to the base could disagree — and relaxing it later is additive. **But if a real shop needs both a Carton and a Bale of the same product, this will block them**, and it needs the owner's decision, not a quiet change.
+2. **No endpoint attaches a barcode to an existing product.** A barcode can be supplied at product creation or when adding a unit, which covers Phase 4's inline-creation flow, but a product typed in without a code cannot have one attached later. Deliberate scope discipline; Phase 4 or 5 should add it when the flow needs it.
+3. **No endpoint edits a price, a product name, or deactivates a product.** Same reasoning — Phase 6 owns product management. Phase 4 will need at least a price edit, since a product created mid-sale is priced in the same breath.
+4. `StockService.issueStock` has no HTTP route by design, so it is reachable only from inside the backend. Phase 4 must not add a bare "issue stock" endpoint; it should call this from the sale command.
+5. Issues carried from §1 and §2 all still stand: the `e2e-env.js` rate-limit bug (§2 known issue 1), npm allow-scripts, no `web/` ESLint config, non-interactive `prisma migrate dev`, minimal password policy, in-memory rate limiting, no refresh tokens.
+6. **A stray verification process was found and stopped.** A `node dist/main.js` on port 3099, started during Phase 2's contract check, had never actually exited — `kill` had killed the subshell rather than node. The first Phase 3 contract check silently read that stale server and appeared to show the new routes missing. It was identified by port, stopped, and the check redone against a clean boot. Nothing of the owner's was touched; the development server on 3001 was left running throughout.
+
+#### Blocked / awaiting user
+
+Nothing blocks Phase 4. Open, and belonging to later phases:
+
+| # | Question | Why it needs the owner | When it starts blocking |
+|---|---|---|---|
+| 1 | **May one product have two large packagings** (a Carton *and* a Bale of the same item)? | Known issue 1. It is a real shop question, not a technical one | Whenever a pilot shop hits it; not Phase 4 |
+| 2 | **Pilot shop workflow** | Decides who the first real onboarding is for | Phase 8 |
+| 3 | Confirm only regenerable build output may be cleared during disk cleanup | Nothing of the owner's was touched, but the confirmation was never given | Whenever disk tightens again |
+
+#### Handoff notes
+
+- **The engine is in `src/domain/` and must stay there.** `units.ts`, `stock.ts`, and `barcode.ts` have no database, no HTTP, and no Nest in them. That is why 102 tests over the hardest logic in the product run in seconds. Phase 4's line totals and change calculation belong there too, not in a service and certainly not in a screen.
+- **Phase 4's sale calls `StockService.issueStock`**, once per line, inside the sale's own transaction. It already writes the `StockMovement` with the conversion snapshotted and attributes it to the actor and device from the token — do not duplicate that.
+- **`issueStock` takes `reason` and `source`.** Pass `StockMovementReason.SALE` with `{ type: 'Sale', id }` so a movement can be traced back to the sale that caused it.
+- **A sale line must snapshot its own price**, the way `StockReceiptLine` snapshots `normalizedQuantity`. Doc 02 §6 is explicit that a later price change must never rewrite a completed sale, and nothing in Phase 3 enforces that for sales yet.
+- **The correction to §2's handoff note:** it said Phase 4/5 would add the `PermissionsGuard`. That was wrong by one phase — receiving stock is a Phase 3 deliverable, so the guard shipped here. Phase 4 only needs to annotate its sale routes with `@RequirePermissions(UserPermission.SELL)`.
+- Prices are integers. Do not introduce a float or a Decimal for money without an ADR.
+- `PRODUCT_WRITE_PERMISSIONS` is exported from `products.service.ts`; reuse it rather than re-listing the pair.
+- `test/openapi.e2e-spec.ts` now also pins that stock keeps its branch in the URL rather than the body. Phase 4's sale should do the same.
+
+
 
 ### §4 — React Native mobile selling flow
 *(empty until started)*

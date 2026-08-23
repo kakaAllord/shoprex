@@ -8,13 +8,14 @@ The confirmed V1 stack is:
 
 | Layer | Choice |
 |---|---|
+| Money | Whole Tanzanian shillings, stored as integers (Phase 3). TZS is not divided into subunits in practice, and an inexact representation eventually disagrees with itself |
 | Mobile | React Native with Expo (development build, not Expo Go), Android first |
 | Web | Next.js with TypeScript |
 | Backend | NestJS with TypeScript |
 | Database | PostgreSQL, one shared multi-tenant database |
 | API | One NestJS API consumed by React Native and Next.js; REST with generated/request-validated schemas is preferred |
 | Authentication | Full account authentication for platform administrators and owners; delegated managers/workers receive scoped credentials and operational PIN/password access as approved |
-| Barcode scanning | Expo camera-based barcode scanning (`expo-camera`) using the phone camera |
+| Barcode scanning | Expo camera-based barcode scanning (`expo-camera`) using the phone camera. **EAN-13**, confirmed by the owner 2026-08-22; a UPC-A is widened to its EAN-13 form, and the check digit is verified |
 | Reporting | Backend-generated daily report and PDF |
 | V1 connectivity | Online-only operational transactions; no offline queue or conflict resolution in V1 |
 
@@ -105,6 +106,22 @@ Custom units are allowed when a business needs a product-specific grouping, for 
 
 The engine must reject cyclic relationships. A product may be incompletely configured. If a shop only sells Coke by Carton, it does not need to define the Piece relationship until it begins selling Pieces.
 
+**As built in Phase 3.** `UnitGraph` in `backend/src/domain/units.ts` holds a
+product's relationships and refuses anything that is not a single tree: a
+self-reference, a cycle, a unit given two parents, a duplicated pair, a factor
+that is not a whole number of at least 1, and units that do not all connect to
+one base. One parent per unit is enforced in the database too, by a unique index
+on the child — two routes down to the base could disagree, and there is no
+honest way to pick a winner.
+
+`FIXED_CONVERSIONS` holds the four conversions a business may not redefine, and
+`assertFixedConversionRespected` refuses a contradicting factor with a `400`.
+Progressive configuration works as described: a product may be created with one
+unit and no relationship at all, and `POST /products/{id}/units` adds a smaller
+or larger unit later, re-basing the arithmetic. Stock already held is
+re-expressed in the new base — the physical packages are untouched, only the
+number they normalise to changes.
+
 ## 5. Stock mathematics
 
 The engine maintains two related views:
@@ -125,6 +142,22 @@ When selling a child unit and loose stock is insufficient, the engine may break 
 The engine must never automatically repackage upward. If the shop has 6 loose Pieces, it must not silently invent `1 Carton`; physical packaging matters.
 
 The transaction must fail safely when stock is insufficient, unless a separate approved negative-stock policy is introduced. Do not hide an inventory deficit by changing units or prices.
+
+**As built in Phase 3.** `backend/src/domain/stock.ts` holds the physical state
+as a count per unit and every function is pure, returning a new state — so a
+movement that turns out to be impossible cannot leave stock half-changed.
+`issue()` checks the normalized total *before* touching anything and throws
+`InsufficientStockError`, which the service turns into a `409`.
+
+`breakOneOpen` opens the **nearest** larger package that has stock, so a Sack is
+not torn apart when breaking a kg would have served, and it cascades down a
+chain (Sack → kg → g) one level at a time. There is no upward path anywhere in
+the module: `receive()` only ever adds to the unit it was given, which is what
+keeps six loose Pieces from becoming a Carton.
+
+Each `StockMovement` snapshots the `conversionFactor` it used, and each
+`StockReceiptLine` its `normalizedQuantity`, so a later change to a package
+factor cannot rewrite what a past delivery contained.
 
 ## 6. Sales rules
 
@@ -175,8 +208,8 @@ The implementation may divide or rename tables, but it must preserve these conce
 |---|---|---|
 | Organization | businesses, branches, users, branch assignments, permissions | Phase 1, plus `UserPermission[]` on `User` in Phase 2 |
 | Devices | devices, enrollment tokens, device sessions | Phase 2. A device session is the JWT's `deviceId` claim rather than a stored row — V1 is online-only and has no session table |
-| Catalogue | products, units, product units, unit relationships, prices, barcodes | Phase 3 |
-| Stock | stock receipts, stock receipt lines, stock movements, current physical stock | Phase 3 |
+| Catalogue | products, units, product units, unit relationships, prices, barcodes | Phase 3. `Product`, `ProductUnit` (which carries the price), `UnitRelationship`, `Barcode`. There is no separate global unit table: a unit belongs to its product, because that is where its meaning is |
+| Stock | stock receipts, stock receipt lines, stock movements, current physical stock | Phase 3. `StockReceipt`, `StockReceiptLine`, `StockMovement` (append-only), `PhysicalStock` (one row per branch per packaging) |
 | Sales | sales, sale lines, payments, debts, receipts | Phase 4 |
 | Settings | payment methods, business settings | Phase 4 seeds the defaults; Phase 6 owns the settings screen |
 | Audit | actor, device, timestamps, idempotency records | `AuditEvent` in Phase 2 (actor, role, device, target, server-clock timestamp). Idempotency records arrive with sales in Phase 4 |
