@@ -10,6 +10,7 @@ interface NavItem {
 
 const OWNER_NAV: NavItem[] = [
   { href: '/owner', label: 'Muhtasari · Overview' },
+  { href: '/owner/reports', label: 'Ripoti · Reports' },
   { href: '/owner/sales', label: 'Mauzo · Sales' },
   { href: '/owner/stock', label: 'Stoo · Stock' },
   { href: '/owner/products', label: 'Bidhaa · Products' },

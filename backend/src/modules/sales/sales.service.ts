@@ -15,6 +15,7 @@ import { requireBranchAccess } from '../../common/branch-access';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { requireBusiness } from '../../common/tenancy';
 import { PrismaService } from '../../database/prisma.service';
+import { DayWindow, DayWindowError, dayWindow } from '../../domain/day-window';
 import {
   PaymentInput,
   PaymentKind,
@@ -300,9 +301,12 @@ export class SalesService {
    * anybody — but browsing what the shop has taken all day is a management
    * act, not part of selling.
    *
-   * There is no date filter here on purpose. Selecting a day and totalling it
-   * is Phase 7's dashboard, and doing local-day arithmetic in two places is
-   * how the two come to disagree.
+   * An optional `date` narrows it to one **shop-local** day. Phase 6 shipped
+   * this route deliberately without one, so that local-day arithmetic would be
+   * decided once rather than twice; Phase 7 decided it in
+   * `src/domain/day-window.ts`, and this filter calls that and nothing else.
+   * The dashboard and this list therefore cut the day at the same instant, by
+   * construction rather than by two implementations agreeing by luck.
    */
   async list(
     principal: AuthenticatedUser,
@@ -314,6 +318,7 @@ export class SalesService {
     await requireBranchAccess(this.prisma, principal, branchId);
 
     const limit = query.limit ?? SALES_PAGE_DEFAULT;
+    const window = query.date ? await this.dayFilter(businessId, query.date) : undefined;
 
     if (query.cursor) {
       // A cursor is a client-supplied id and gets the same treatment as any
@@ -332,7 +337,11 @@ export class SalesService {
     // One more than asked for, so "is there another page?" is answered by
     // what came back rather than by a second count query.
     const rows = await this.prisma.sale.findMany({
-      where: { businessId, branchId },
+      where: {
+        businessId,
+        branchId,
+        ...(window ? { createdAt: { gte: window.startUtc, lt: window.endUtc } } : {}),
+      },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: limit + 1,
       ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
@@ -535,6 +544,35 @@ export class SalesService {
     }
 
     throw error;
+  }
+
+  /**
+   * One shop-local day, as the UTC interval to compare `createdAt` against.
+   *
+   * The zone is the business's own and the arithmetic is `dayWindow()`'s — the
+   * same call the daily report makes. Nothing here re-derives a boundary, so
+   * a sale that appears in the report's totals is exactly a sale this list
+   * shows for that date.
+   */
+  private async dayFilter(businessId: string, date: string): Promise<DayWindow> {
+    const business = await this.prisma.business.findUnique({
+      where: { id: businessId },
+      select: { timezone: true },
+    });
+
+    if (!business) {
+      throw new NotFoundException('Business not found');
+    }
+
+    try {
+      return dayWindow(date, business.timezone);
+    } catch (error) {
+      if (error instanceof DayWindowError) {
+        throw new BadRequestException(error.message);
+      }
+
+      throw error;
+    }
   }
 
   /** Turns a SaleMathError into a 400 rather than a 500. */

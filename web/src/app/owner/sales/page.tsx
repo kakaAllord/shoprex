@@ -71,7 +71,7 @@ export default async function SalesPage({
       profile={profile}
       current="/owner/sales"
       title="Mauzo · Sales"
-      lede={`Mauzo ya ${selected.name}, mapya kwanza. Ripoti za siku na PDF zinakuja awamu ijayo. ${selected.name}'s sales, newest first — daily totals and PDFs arrive next phase.`}
+      lede={`Mauzo ya ${selected.name}, mapya kwanza. Kwa jumla ya siku na PDF, angalia Ripoti. ${selected.name}'s sales, newest first — for daily totals and a PDF, see Ripoti.`}
     >
       <BranchPicker branches={branches} selected={selected.id} basePath="/owner/sales" />
 
