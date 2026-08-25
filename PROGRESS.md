@@ -18,17 +18,21 @@ If Part A and Part B ever disagree (e.g. the table says "Complete" but a section
 | 5 | React Native stock receiving and operational visibility | Complete | Yes — both halves of the clause driven by real tests: the backend over HTTP as a stock keeper, the phone through the screens, see §5 | 2026-08-23 |
 | 6 | Next.js owner and admin web app | Complete | Yes — every clause driven end to end over HTTP by all four roles, plus a live console smoke test, see §6 | 2026-08-23 |
 | 7 | Reports and PDF | Complete | Yes — every clause driven end to end over real HTTP, plus a live console and PDF-download check against a running backend and web server, see §7 | 2026-08-24 |
-| 8 | Pilot hardening and launch | Not started | — | — |
+| 8 | Pilot hardening and launch | In progress | Partly — every code deliverable is verified by real tests (see §8); **low-end Android testing and the pilot shop itself are outstanding** | 2026-08-25 |
 
 **Status values:** `Not started` / `In progress` / `Blocked` / `Complete`. Only mark `Complete` when the acceptance-check column says `Yes`, backed by a real test run referenced in that phase's section below.
 
-**Active phase:** Phase 8, not yet started. Phase 7 closed on 2026-08-24 with **1,007** automated tests passing across all three surfaces (up from 848 at the start of the session: backend unit 152→252, backend e2e 430→489, web 61 unchanged in count but exercising new code, mobile 205 untouched) — see §7. It added **three new routes** and **no new table**: the day boundary and every figure are computed from data Phases 1–6 already recorded. The sales list also gained the `?date=` filter that §6's handoff note deliberately deferred here, so it and the report resolve a day through the exact same code.
+**Active phase:** Phase 8, **in progress**. The session opened by re-running the full suite from the recorded 1,038 and getting exactly 1,038, so the table and reality agreed before anything was touched. It now stands at **1,179** — backend unit 260 (unchanged), backend e2e 493 → **613**, web 66 → **80**, mobile 219 → **226**.
 
-Two things carried from §6 are now current: the owner overview and the sales-list lede no longer promise reports "next phase" — they point at Ripoti, which now exists.
+Phase 8 found **three real defects** rather than merely confirming earlier work, and the first is the one the phase exists for:
 
-**After Phase 7 closed**, the owner asked for two more things in the same session — QR device enrollment, and a reachable way to add products on the phone. Both are done and recorded in **§7a**; neither was new V1 scope (doc 02 §3 always specified the QR, and Phase 8 already listed QR enrollment tests). The suite is now at **1,038**. On **2026-08-25** the owner also approved the long-open move of the shared mobile sheets out of `features/sale/` into `src/components/` — behaviour-neutral, and it closes §6's blocked question 3.
+1. **The phone threw away the backend's idempotency protection.** `SaleScreen` minted a *fresh* key on every submit attempt, so a sale that committed but lost its response was rung up a second time when the seller pressed **Lipa** again — stock and all. The backend's guarantee had been exact and unreachable since Phase 4. Fixed, and `Pokea mzigo` given the same treatment.
+2. **Stock receipts had no idempotency key at all**, so a retried delivery doubled the crate — and V1 has no way to correct a saved delivery. The owner approved adding one (nullable, mirroring sales); it is now the only schema change this phase makes.
+3. **The web console had no loading, error, or not-found boundaries.** Every screen is a server component that awaits the backend, so a slow connection showed the *previous* page with no sign anything was happening.
 
-**Exact next action:** begin Phase 8's pilot hardening per `docs/v1/03_SHOPREX_V1_IMPLEMENTATION_PHASES.md`, and mark the Phase 8 row `In progress` when that work starts. Nothing blocks it. Phase 8's cumulative isolation pass should **confirm** reports isolation (§7's suite already covers it) rather than discover it fresh. Its **QR enrollment expiry tests** now have a QR to test. **Before writing any of it, run the full suite** — 1,038 is the number it must start from, and a **new mobile build** is needed before the scanner can be tried by hand.
+Also fixed: `AuditAction.BRANCH_CREATED` had been declared since Phase 1 and written by nobody, and `test/e2e-env.js` never actually raised the e2e rate limits (dotenv had already set them, so its `??` never fired) — which is the intermittent-throttling bug §6 logged.
+
+**Exact next action:** the code deliverables are done and verified. What remains is not code — **walk §8's Manual testing on a real low-end Android phone**, which needs a new EAS build (`cd mobile && npm run build:dev`), and **select the pilot shop**. Phase 8 must not be marked `Complete` until both have happened: its acceptance check names a real shop, and "low-end Android testing" cannot be satisfied from a laptop.
 
 ---
 
@@ -1724,4 +1728,260 @@ Nothing blocks Phase 8, and nothing is outstanding from this section. The questi
 - **The QR was verified by decoding, not by eyeballing.** A throwaway script parsed the SVG paths back into a module matrix and compared all 441 modules against `QRCode.create()`. If the rendering options ever change, redo that check rather than trusting that the output still looks like a QR code.
 
 ### §8 — Pilot hardening and launch
-*(empty until started)*
+
+**Status:** In progress. **Verified:** Partly — every *code* deliverable is driven by real tests over real HTTP, and the backup/recovery test was run for real against PostgreSQL. **Low-end Android testing and the pilot shop itself are outstanding**, and neither can be done from a laptop. **Date:** 2026-08-25.
+
+Phase 8's job is not to add features. It is to ask whether the thing built over seven phases would survive a Monday in a real shop — and the honest answer, at the start of this session, was *not quite*. Three defects were found, and the first one mattered enough on its own to justify the phase.
+
+#### The suite was re-run before anything was touched
+
+`PROGRESS.md` recorded **1,038** at §7a's close. The full three-surface suite was run first and returned exactly **1,038**, so the master table and reality agreed before a line changed. That is the continuity rule doing its job rather than a formality: a phase that starts from an unverified number cannot honestly report what it changed.
+
+#### What was actually broken
+
+**1. The phone never used the backend's idempotency key.** *(the important one)*
+
+`SaleScreen.complete()` incremented a counter and called `newIdempotencyKey(deviceId, counter)` **inside** the submit handler, on every attempt. The key is `${deviceId}:${Date.now()}:${counter}`, so every retry carried a brand-new one.
+
+The consequence, in a shop: the seller taps **Lipa**; the backend commits the sale; the response is lost to a dropped signal or the client's own 10-second abort; the phone says *Mauzo hayajakamilika* with the cart still full; the seller taps **Lipa** again — and the backend, quite correctly, rings up a **second sale** with its own stock movements. The customer is charged twice and the stock is taken twice.
+
+The backend side has been exact since Phase 4 and is thoroughly tested (`sales.e2e-spec.ts` §7, including the racing-requests case a unique index catches). It was simply unreachable. A guarantee no client invokes is not a guarantee.
+
+The fix is small and the non-obvious half is the second clause: **mint once per cart, reuse on every retry, discard on success — or when the cart changes.** Reusing a key across an *edit* would be worse than minting a new one, because the backend would answer with the sale the first attempt created and the line the seller had just added would vanish off a receipt they watched themselves build. A changed cart is a different sale; an unchanged cart submitted twice is a retry. An effect keyed on `cart` clears the pending key, so the distinction is structural rather than remembered.
+
+The failure message now says so: *bonyeza Lipa tena — hakitauzwa mara mbili*. A seller standing in front of a customer needs to know whether pressing again is safe, and previously nobody could tell them.
+
+**The new test was checked against the old code.** Re-introducing the one-line bug fails exactly one assertion — *retries with the very same idempotency key* — and leaves the other 23 in that file green. A regression test that has never been seen to fail is a guess.
+
+**2. Stock receipts had no idempotency key at all.**
+
+`CreateStockReceiptDto` carried `lines` and `note`. A retried delivery on a bad connection received the crate twice, and V1 has **no way to correct a saved delivery** — so the only remedy was a compensating sale that never happened. This was the sharper version of defect 1: there the mechanism existed and went unused; here it did not exist.
+
+Fixed with the owner's approval (see *Decisions made*). It is the only schema change this phase makes.
+
+**3. The web console had no loading, error, or not-found boundaries.**
+
+No `loading.tsx`, `error.tsx`, or `not-found.tsx` existed anywhere under `web/src/app/`. Every console screen is a server component that awaits the backend before rendering anything, so on a shop's connection clicking **Ripoti** left the *previous* page on screen with no indication that a navigation had begun — which invites a second tap. An unhandled exception fell through to Next's own English developer screen, and a mistyped address to its unstyled `404 — This page could not be found`.
+
+`globals.css` had the comment *"The four states nobody looks at until they happen"* above three states. Empty, error, and permission-denied were done carefully in Phase 6; loading was never written.
+
+#### Smaller findings from the audit review
+
+- **`AuditAction.BRANCH_CREATED` was declared in the schema in Phase 1 and written by nobody.** `BranchesService` did no auditing at all. An owner asking "who opened this branch, and when" got an empty log, which reads as proof that nothing happened. Now recorded, inside the same transaction as the branch itself.
+- **`test/e2e-env.js` never actually raised the e2e rate limits.** It read `process.env.RATE_LIMIT_DEFAULT ?? '10000'` — but `dotenv` had already loaded `backend/.env` two lines above, so a developer's real `RATE_LIMIT_DEFAULT=120` always won and every functional suite ran at the production limit. Long suites then failed with `429` depending on machine speed. This is the intermittent-throttling bug §6 logged, and it had to go first: a cumulative pass that fails at random proves nothing.
+
+#### An observation, not a defect
+
+**A self-registered shop starts with no branch.** `POST /auth/signup` creates the business and the owner and stops; only the development seed makes a "Tawi Kuu". Every operational route takes a branch id, so opening the first branch is the real first step of onboarding. Nothing is wrong — the console has `/owner/branches` — but it was assumed otherwise while writing the journey test, and it is now asserted explicitly so the next person does not assume it either.
+
+#### Acceptance check evidence
+
+> A selected pilot shop can onboard, enroll devices, sell, receive stock, manage workers, view reports, and recover from ordinary network/API errors without data duplication.
+
+| Clause | Where it is proven |
+|---|---|
+| **Onboard** | `test/pilot-journey.e2e-spec.ts` §1 — sign-up from an empty database, phone normalised, timezone and currency defaulted, first branch opened and audited |
+| **Enroll devices** | §3 — code issued, QR proven to carry the identical string, redeemed, refused a second time, two people signing in on the one handset |
+| **Sell** | §5 — barcode lookup, cash with backend-computed change, a Kreti broken open, price snapshotting, debt, and a seller who may read their own receipt but not the day's list |
+| **Receive stock** | §4 — a delivery in the packaging it arrived in, read back as physical packages, refused to a seller without `RECEIVE_STOCK` |
+| **Manage workers** | §2 — manager, seller, stock keeper; a foreign branch answers 404 |
+| **View reports** | §6 — totals, debts, sellers, best sellers, the PDF read back for the same names, and a manager scoped to their own branch |
+| **Recover from ordinary network/API errors without data duplication** | §8 — retried sale, retried delivery, both racing, a sale and a delivery each failing on their third line leaving *nothing* behind, negative stock, and the later receipt landing on the true count. Plus the phone's half, in `SaleScreen.test.tsx` and `ReceiveScreen.test.tsx` |
+| **A phone with the wrong clock cannot corrupt which day a sale is reported under** | §7 — a body carrying `createdAt` is **refused** (400, via `forbidNonWhitelisted`) rather than silently ignored; the stamp lands inside the window the request occupied; and a sale is proven to fall on the correct shop-local day either side of a boundary that is not UTC midnight |
+
+**The pilot shop is a representative one**, created through the real onboarding routes from an empty database. A real shop has not been selected — see *Blocked / awaiting user*.
+
+#### Deliverables, one by one
+
+| Deliverable | Status |
+|---|---|
+| Cumulative tenant-isolation and permission pass | `test/isolation-pass.e2e-spec.ts`, 60 tests |
+| Sale idempotency | Backend already exact; **the client was not** — fixed, and the fix is regression-tested against the old code |
+| Stock transaction tests | All-or-nothing on both sales and deliveries, plus the new receipt idempotency (6 tests in `stock-receiving.e2e-spec.ts`) |
+| QR enrollment expiry tests | 6 tests in `device-enrollment.e2e-spec.ts` |
+| Device revocation tests | Existing suite confirmed, plus `pilot-journey` §9 |
+| Device clock-skew handling | `pilot-journey` §7 |
+| Low-end Android testing | **Not done.** Needs a real phone and a new EAS build — see *Blocked* |
+| Barcode failure handling | Mis-scan `400` vs unknown-code `404` proven on both surfaces |
+| Loading/error/empty states | The missing loading, error, and not-found boundaries added; 14 new web tests |
+| Audit review | `BRANCH_CREATED` gap found and closed |
+| Database backup/recovery test | `scripts/backup.js verify`, **run for real** — 87 rows across 19 tables restored intact |
+| Pilot feedback log | `docs/v1/05_SHOPREX_V1_PILOT_FEEDBACK_LOG.md` |
+
+#### The cumulative pass, and why it is not redundant
+
+`catalogue-isolation`, `sales-isolation`, and `reports-isolation` each prove their own phase's resources well. None of them can prove that **nothing was missed** — a resource added in a hurry with no isolation test does not fail any of them, it simply is not mentioned.
+
+So `isolation-pass.e2e-spec.ts` does two jobs, and the second is what makes it cumulative:
+
+1. It sweeps every tenant-scoped route from another shop's token and from an unassigned branch **in one table**, so the answers can be compared against each other rather than read one suite at a time.
+2. It reads the **Prisma datamodel itself** and fails when a model carrying a `businessId` is not named in its coverage map. A tenant-bearing table added in Phase 9 breaks this test on the day it lands — while the person who added it is still looking at it, rather than in a review a year later. Adding a name to the map is not the fix; writing the test it names is.
+
+Two details worth knowing before editing it:
+
+- **Every table row holds a thunk, not a string.** `it.each` evaluates its table at collection time, before `beforeAll`, so template literals would bake in `undefined` for every id — and then **pass**, because `/api/v1/branches/undefined` answers 404 too. Each case now asserts its URL contains no `undefined` before asserting the refusal. This was caught on the first run and it is exactly the failure mode a thorough-looking suite hides.
+- **Every `it.each` row has uniform arity**, GETs included. A row one element short makes Jest pass its own `done` callback into the gap, which it then refuses to run alongside an async function — five tests failed for a reason with nothing to do with permissions.
+
+The final check is a cross-tenant **stitching** query rather than a row count: for every model carrying both `businessId` and `branchId`, no row may have a branch belonging to a different business. That is corruption no HTTP test can see, because each request looked correct on its own and the two ids only disagree when read together. The obvious test — counting rows owned by a third business — was written first and was worthless, since other suites legitimately leave their own shops behind; it would have failed on a clean codebase and taught everyone to ignore it.
+
+#### Files changed
+
+**Backend — new:**
+- `test/pilot-journey.e2e-spec.ts` (48 tests) — the acceptance check as one shop's first day
+- `test/isolation-pass.e2e-spec.ts` (60 tests) — the cumulative pass
+- `scripts/backup.js` — `backup` / `restore` / `verify`
+- `prisma/migrations/20260825120000_stock_receipt_idempotency/`
+
+**Backend — edited:**
+- `prisma/schema.prisma` — `StockReceipt.idempotencyKey` (nullable) + `@@unique([businessId, idempotencyKey])`
+- `src/modules/stock/dto/create-stock-receipt.dto.ts`, `src/modules/stock/stock.service.ts` — the key, the retry lookup, the cross-branch `409`, and the P2002 race collapse
+- `src/modules/branches/branches.service.ts` — records `BRANCH_CREATED` in the same transaction as the branch
+- `test/e2e-env.js` — the rate-limit override that never fired
+- `test/stock-receiving.e2e-spec.ts` (+6), `test/device-enrollment.e2e-spec.ts` (+6 QR expiry)
+- `test/openapi.e2e-spec.ts` — the `CreateStockReceiptDto` property pin, updated deliberately after it caught the new field
+- `package.json` — `backup`, `backup:restore`, `backup:verify`
+
+**Web — new:** `src/app/error.tsx`, `src/app/not-found.tsx`, `src/app/owner/loading.tsx`, `src/app/admin/loading.tsx`, `src/app/boundaries.test.tsx` (10 tests).
+
+**Web — edited:** `src/components/states.tsx` (`LoadingState`) + `.test.tsx` (+4), `src/styles/globals.css` (skeleton and action-row styles, both honouring `prefers-reduced-motion`).
+
+**Mobile — edited:** `src/features/sale/SaleScreen.tsx` + `.test.tsx` (+4), `src/features/receive/ReceiveScreen.tsx` + `.test.tsx` (+3), `src/core/api/apiClient.ts` (`ReceiveStockInput.idempotencyKey`), `src/app/App.tsx` (passes `deviceId` to `ReceiveScreen`).
+
+**Docs:** `README.md` (API surface, backup section, the two new suites, the idempotency narrative), `docs/v1/01` §5, `docs/v1/02` §§3/5/6, `docs/v1/00` (index), `docs/v1/05_SHOPREX_V1_PILOT_FEEDBACK_LOG.md` (new), `.gitignore` (`backend/backups/`, `*.dump`).
+
+#### Tests and results
+
+```bash
+cd backend && npm run lint && npm run typecheck && npm test && npm run test:e2e && npm run build
+cd web     && npm run typecheck && npm test && npm run build
+cd mobile  && npm run typecheck && npm test
+```
+
+| Surface | Before this phase | After |
+|---|---|---|
+| Backend unit | 260 / 12 suites | 260 / 12 suites (unchanged — this phase's work is integration-shaped) |
+| Backend e2e | 493 / 17 suites | **613 / 19 suites** |
+| Web | 66 / 14 files | **80 / 15 files** |
+| Mobile | 219 / 13 suites | **226 / 13 suites** |
+| **Total** | **1,038** | **1,179** |
+
+Lint, typecheck, and build pass on backend and web; mobile typecheck and tests pass.
+
+**The backup/recovery test was run for real**, not merely written:
+
+```text
+node scripts/backup.js verify
+  … 19 tables, live vs restored, every pair equal
+  Recovery verified: 87 rows across 19 tables.
+```
+
+#### Manual testing
+
+Everything below rests on things no test in this repository has ever touched: a real camera, a real thumb, a real network dying. **Two features here have no automated coverage at all and are the entire reason this section exists.**
+
+**Setup**
+
+1. PostgreSQL running; `cd backend && npm run prisma:deploy && npm run prisma:seed && npm run start:dev`.
+2. `cd web && npm run dev` — sign in at `/login` as `owner@shoprex.co.tz` / `shoprex12345`.
+3. **A new mobile build is required.** `ReceiveScreen` gained a prop and both screens changed their retry behaviour; a JavaScript reload covers those, but if you have not built since §7a's `barcodeTypes` change the scanner will not read a QR at all: `cd mobile && npm run build:dev`.
+4. Enrol a phone from **Simu** and sign in as a worker with `SELL` and `RECEIVE_STOCK`.
+
+---
+
+**Feature 1 — Selling twice by accident, and finding you cannot** *(must pass — this is the phase)*
+
+The one thing to test if you only have ten minutes. It needs a real network you can break.
+
+1. Build a cart in **Mauzo** with one item, tap **Lipa**, choose **Taslimu**. → The complete button enables.
+2. **Turn the phone's Wi-Fi and mobile data off**, then tap **Maliza mauzo**. → After about ten seconds: *Mauzo hayajakamilika*, and beneath it *Bonyeza Lipa tena — hakitauzwa mara mbili*. The cart is **still there**.
+3. Turn the network back on and tap **Maliza mauzo** again. → The sale completes and the receipt appears.
+4. On the console, open **Ripoti**. → **One** sale, not two. → *This is the whole test.*
+5. Now the harder case, and the one worth doing properly: start a new sale, tap **Maliza mauzo**, and **pull the plug on the backend** (`Ctrl-C` the `npm run start:dev`) at the moment the spinner appears — so the sale genuinely commits and the response genuinely never arrives. Restart the backend, tap **Maliza mauzo** again. → The receipt appears, and **Ripoti still shows one sale**. → *That is the case the whole mechanism exists for, and step 2 only simulates it.*
+6. Repeat step 2, but this time **close the payment sheet, add one more item**, and pay again. → **Two** sales in Ripoti, the second with two lines. → *Correct. A changed cart is a different sale, and the added line must not vanish into the first receipt.*
+
+**Feature 2 — Receiving the same delivery twice by accident** *(must pass)*
+
+1. In **Pokea mzigo**, add a product, set the quantity to 6, turn the network off, tap **Hifadhi**. → *Mzigo haujahifadhiwa … Bonyeza Hifadhi tena — hautapokelewa mara mbili.* The basket is still there.
+2. Turn the network on, tap **Hifadhi** again. → Saved.
+3. Open **Stoo**. → The stock went up by **6**, not 12. → *There is no way to correct a saved delivery in V1, so this is the only protection there is.*
+4. Repeat, but change the quantity to 8 between the two attempts. → A **second** delivery of 8 is recorded, for the same reason as Feature 1 step 6.
+
+**Feature 3 — The console on a slow connection** *(worth a look)*
+
+1. In the browser's dev tools, set the network to **Slow 3G**.
+2. Click **Ripoti** from the overview. → A **skeleton** appears immediately — *Inapakia · Loading…* with grey bars — and the navigation stays visible. → *Before this phase the previous page just sat there.*
+3. Same on **Stoo**, **Mauzo**, **Bidhaa**, **Wafanyakazi**.
+4. Visit `/owner/nonsense`. → *Ukurasa haupo*, in Swahili, with one link back — **not** Next's unstyled English 404, and **not** dressed in red. → *A wrong address is a wrong turn, not a fault.*
+5. Stop the backend and reload `/owner/reports`. → *Kuna hitilafu*, with **Jaribu tena** and **Rudi mwanzo**, and *Hakuna taarifa iliyopotea*. Restart the backend and press **Jaribu tena**. → The page renders.
+6. Turn on the OS "reduce motion" setting and reload a slow page. → The skeleton is still there and **no longer shimmers**.
+
+**Feature 4 — An enrollment QR that has gone stale** *(worth a look)*
+
+1. Issue a code from **Simu** with a short expiry, leave the QR on screen, and wait it out.
+2. On the phone, **Soma msimbo**, point at the stale QR. → Refused — the same refusal typing it gives.
+3. Issue a fresh code. **Type** it on one phone, then point a second phone at the QR still on screen. → The second is refused. → *One code, two ways in, one redemption.*
+
+**Feature 5 — Backup and recovery** *(must pass before a real shop's data exists)*
+
+1. `cd backend && npm run backup:verify`. → A table of every tenant-bearing table, live beside restored, and `Recovery verified: N rows across 19 tables`.
+2. Deliberately break it: `npm run backup`, ring up a sale, then restore that dump into a scratch database and confirm the sale is **absent** from it. → *Proves the tool is reading the dump and not the live database.*
+3. Confirm `git status` shows **nothing** under `backend/backups/`.
+
+**Feature 6 — A cheap Android phone** *(must pass — no automated coverage whatsoever)*
+
+The whole product runs on the phone a shop can afford, and nothing in 1,179 tests has been near one.
+
+1. Install the build on the **oldest, slowest Android device available**.
+2. Time the cold start, **Mauzo** opening, and the scanner opening. → Anything over a few seconds on the scanner is a finding.
+3. Scan ten items in a row as fast as you can. → Every scan lands as a cart line; none is dropped or double-counted.
+4. Read a **QR off a laptop screen at arm's length**, at an angle, with a light behind you.
+5. Check the tap targets with an actual thumb — the **+/−** steppers and **Maliza mauzo** especially.
+6. Rotate, background the app mid-sale, take a call, come back. → The cart survives.
+
+**What has no automated coverage at all**
+
+1. **A real Android phone, of any kind.** Every mobile test runs in Jest with `expo-camera` and `expo-secure-store` mocked. The scanner has never actually run.
+2. **A camera reading a QR off a screen.** The rendering is proven byte-identical to the encoder's own output; no photons have been involved.
+3. **The console in a real browser window**, clicked with a mouse, with a file landing in a Downloads folder.
+4. **A genuinely lost response.** Feature 1 step 2 simulates it by disabling the radio; step 5 is the real thing, and only a person can do it.
+5. **The camera-permission-denied screen.** `ScannerSheet` renders one and no test exercises that branch.
+6. **The console at phone width**, carried over from §6 and still true.
+
+#### Decisions made
+
+- **Stock receipts got an idempotency key** — put to the owner with the alternatives (document it as a risk; guard it client-side only) and approved. Nullable rather than required, because the column arrived after the route did and PostgreSQL treats NULLs as distinct in a unique index: a client sending no key behaves exactly as before and never collides with another. It mirrors `Sale` deliberately, including the `409` when a key is reused in a different branch — answering with the other branch's receipt would quietly tell a stock keeper that goods reached a shelf they are not standing at.
+- **A changed cart abandons the pending idempotency key.** The alternative — one key per cart forever — is worse: after a failed attempt the seller adds an item, pays, and gets the *first* attempt's receipt with the new line missing. An invisible line missing from a bill beats a rare duplicate only if you never have to explain it to the customer.
+- **Backup is a script plus a verified restore**, chosen by the owner over a documented procedure alone. Scheduling, offsite copies, encryption, and retention are deliberately **not** here: they are decisions about where a pilot is hosted, which has not been decided.
+- **The pilot journey is verified representatively**, chosen by the owner, since no real shop has been selected. Every step runs through the real onboarding routes from an empty database.
+- **The pilot feedback log is `docs/v1/05`**, chosen by the owner, following the numbered-document convention. It is empty of entries and says so.
+- **`test/openapi.e2e-spec.ts`'s property pin was updated, not loosened.** It caught `idempotencyKey` on `CreateStockReceiptDto`, which is the pin working. The list stays exact so the next new field on a tenant-adjacent body also has to be looked at once.
+- **A backend dev server was stopped**, with the owner's approval, because it held the Prisma query-engine DLL and blocked `prisma generate`. It predated this session's schema change and was serving a stale client. It was **not** restarted — bring it back with `cd backend && npm run start:dev`.
+
+#### Known issues / risks
+
+1. **`StockService`'s idempotency handling is a near-copy of `SalesService`'s.** `findReceiptByIdempotencyKey`/`asExistingReceipt` mirror `findByIdempotencyKey`/`asExistingSale` at about twenty lines each. Factoring them into a shared generic helper was considered and rejected: the two differ in Prisma delegate, return type, and error text, and the abstraction would cost more indirection than it removes. Worth revisiting if a **third** idempotent command ever appears — that is the point at which the pattern is real rather than a coincidence.
+2. **`scripts/backup.js` is not covered by `npm run lint`**, which runs over `src` and `test` only. It was run for real instead, which is stronger, but it will not be caught by CI if it rots.
+3. **`backup:verify` needs `pg_dump`, `pg_restore`, and `psql` on `PATH`.** On Windows they are in `C:\Program Files\PostgreSQL\17\bin`, which is not on `PATH` by default; the script says so when it cannot find them. It also needs permission to create a database.
+4. **Low-end Android is entirely unmeasured.** Not a known issue so much as a known unknown, and the largest one in the project.
+5. **The `--forceExit` warning on the e2e suite.** Jest reports open handles after `isolation-pass` completes. Not investigated; the suite passes and `npm run test:e2e` (which uses `--runInBand` and no `--forceExit`) exits cleanly, so this is an artefact of running that file alone.
+6. Issues carried from §1–§7a all still stand — see §7's list for the fullest copy. Two of them are now **closed**: the `e2e-env.js` rate-limit bug (fixed here) and §7a's note that the QR had no expiry test.
+
+#### Blocked / awaiting user
+
+| # | Question | Why it blocks marking Phase 8 complete |
+|---|---|---|
+| 1 | **Which shop is the pilot?** | The acceptance check says *a selected pilot shop*. The journey is proven against a representative one, which is as far as code can take it. Onboarding a real shop is the remaining half |
+| 2 | **Who has a low-end Android phone, and when can it be walked through Feature 6?** | "Low-end Android testing" is a named deliverable and cannot be satisfied from a laptop. It is also where the highest-risk untested code lives — the camera |
+| 3 | **Where will the pilot be hosted, and who runs the backups?** | The mechanism and its recovery test exist. Schedule, offsite copy, encryption, and retention are hosting decisions nobody has made, and a backup that only ever runs when somebody remembers is not a backup |
+
+Questions carried from §6 (a shared barcode catalogue, a second large packaging per product, an admin-editable shop record, and the disk-cleanup confirmation) remain open and still block nothing.
+
+#### Handoff notes
+
+- **Do not mark Phase 8 complete from a laptop.** Two of its deliverables are physical. The table says `In progress` on purpose, and the more cautious reading is the authoritative one.
+- **`isolation-pass.e2e-spec.ts`'s `COVERAGE` map is a tripwire, not documentation.** When a later phase adds a model with a `businessId`, that test fails. The fix is to write the isolation test and then name where it lives — never to add the name alone.
+- **`it.each` tables in that file hold thunks for a reason**, written down at the call site. Anything added there must follow, or it will pass against `undefined` ids.
+- **The idempotency key rule on both phone screens is: mint once per cart, reuse on retry, discard on success or on edit.** If a third screen ever writes something, it gets the same rule — and the edit clause is the half that is easy to leave out.
+- **`AuditService.record` takes a transaction client.** `BranchesService.create` now uses it, like everything else that audits. An audit line for a record that was never created is worse than no line.
+- **The dev server on :3001 was stopped and not restarted.**
+

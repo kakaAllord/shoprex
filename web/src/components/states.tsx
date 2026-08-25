@@ -19,6 +19,32 @@ export function EmptyState({ title, hint }: { title: string; hint?: string }) {
 }
 
 /**
+ * The state this file used to be missing, and the one a pilot shop meets most.
+ *
+ * Every console screen is a server component that awaits the backend before it
+ * renders anything, so on a slow connection the browser sat on the *previous*
+ * page with no indication that anything was happening — the reader's only
+ * feedback was that clicking had apparently done nothing, which invites them
+ * to click again. Next renders a segment's `loading.tsx` the instant a
+ * navigation starts, and this is what those render.
+ *
+ * `rows` draws the shape of the table that is coming rather than a spinner, so
+ * the page does not jump when the real content lands.
+ */
+export function LoadingState({ label, rows = 3 }: { label: string; rows?: number }) {
+  return (
+    <div className="shoprex-loading" role="status" aria-live="polite">
+      <p className="shoprex-loading__label">{label}</p>
+      <div className="shoprex-loading__bars" aria-hidden="true">
+        {Array.from({ length: rows }, (_, index) => (
+          <span key={index} className="shoprex-loading__bar" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Something went wrong, said in terms of what the reader can do next.
  *
  * A **403 is not an error** and is not shown as one: it means the shop's own

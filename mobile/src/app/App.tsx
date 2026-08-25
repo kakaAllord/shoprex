@@ -251,6 +251,7 @@ export default function App({
         <ReceiveScreen
           apiClient={apiClient}
           branchId={profile.branchIds[0] ?? ''}
+          deviceId={deviceId}
           onBack={() => setRoute({ name: 'home' })}
           // Offered only to someone who could actually open it. The backend
           // refuses the read either way; this is about not pointing at a door

@@ -131,6 +131,27 @@ it needs no permission beyond being staff; adding needs `SELL` or
 required there — cataloguing what the shop stocks is §6's progressive
 enrichment, and only selling cannot invent a price.
 
+**When the network dies mid-sale, as hardened in Phase 8.** The seller is told
+the sale did not go through, the cart is still there, and — this is the part
+that matters — **pressing Lipa again cannot charge the customer twice.** The
+message says so in as many words: *bonyeza Lipa tena — hakitauzwa mara mbili*.
+
+That is not a new feature so much as a promise the product had been making and
+not keeping. The backend has refused duplicate sales since Phase 4; the phone
+was generating a new key for each attempt, so a retry was simply a second sale
+with a second set of stock movements. A shopkeeper's only safe move on a bad
+connection was to do nothing and hope, which on a Tanzanian phone is not a
+usable answer.
+
+Editing the cart after a failure starts a **new** sale, deliberately. If the
+seller adds an item and pays again, they get what they can see in front of them
+rather than the receipt of the attempt that silently succeeded — an invisible
+line missing from a bill would be a worse failure than a rare duplicate.
+
+**Pokea mzigo behaves the same way** for a delivery, and had the same gap in a
+sharper form: receiving carried no retry protection at all, and V1 has no way
+to correct a saved delivery. A doubled crate stayed doubled.
+
 ## 6. Stock and product behavior
 
 Shoprex supports barcode lookup and fast manual search. Product sizes are separate products, while packages such as Piece, Carton, Bale, Sack, Pack, or a custom name belong to the specific product. A carton may contain six pieces for one product and forty-eight for another.

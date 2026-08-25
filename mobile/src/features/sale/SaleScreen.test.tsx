@@ -547,3 +547,174 @@ describe('taking the money', () => {
     expect(screen.getByText(/must add up/)).toBeTruthy();
   });
 });
+
+/**
+ * Phase 8 — recovering from a dropped connection without selling it twice.
+ *
+ * The backend's idempotency is proven over real HTTP in
+ * `backend/test/sales.e2e-spec.ts`, and it is exact. What it cannot prove is
+ * that the phone actually *uses* it, which until Phase 8 it did not: the key
+ * was minted inside the submit handler off an incrementing counter and
+ * `Date.now()`, so every retry carried a brand-new key and the backend, quite
+ * correctly, rang up a second sale.
+ *
+ * These tests hold the phone to its side of the bargain.
+ */
+describe('a sale that fails on a bad connection', () => {
+  const openPayment = async () => {
+    fireEvent.changeText(screen.getByTestId('sale-search'), 'sabuni');
+    await waitFor(() => expect(screen.getByTestId('sale-result-sabuni')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('sale-result-sabuni'));
+    await waitFor(() => expect(screen.getByTestId('cart-quantity-kipande')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('sale-pay'));
+    await waitFor(() => expect(screen.getByTestId('payment-total')).toBeTruthy());
+  };
+
+  /** Fails the first POST /sales outright, then answers the retry. */
+  function flakyBackend() {
+    const sent: Array<{ url: string; body: unknown }> = [];
+    let saleAttempts = 0;
+
+    const fetchFn = jest.fn(async (url: string, init?: { body?: string }) => {
+      const parsed = init?.body ? JSON.parse(init.body) : undefined;
+
+      sent.push({ url: String(url), body: parsed });
+
+      if (String(url).includes('/sales')) {
+        saleAttempts += 1;
+
+        // The response never arrives. This is what a Tanzanian phone losing
+        // its signal mid-request actually looks like to fetch — not a status
+        // code, an exception.
+        if (saleAttempts === 1) {
+          throw new TypeError('Network request failed');
+        }
+
+        return { status: 201, text: async () => JSON.stringify(completedSale) };
+      }
+
+      if (String(url).includes('/payment-methods')) {
+        return { status: 200, text: async () => JSON.stringify(methods) };
+      }
+
+      if (String(url).includes('/products/unit-names')) {
+        return { status: 200, text: async () => JSON.stringify(['Kipande']) };
+      }
+
+      return { status: 200, text: async () => JSON.stringify([sabuni]) };
+    }) as unknown as typeof fetch;
+
+    return { fetchFn, sent, saleKeys: () => sent.filter((r) => r.url.includes('/sales')) };
+  }
+
+  it('retries with the very same idempotency key, so the backend can recognise it', async () => {
+    const { fetchFn, saleKeys } = flakyBackend();
+
+    renderSale(fetchFn);
+    await openPayment();
+
+    fireEvent.press(screen.getByTestId('payment-method-cash'));
+    fireEvent.changeText(screen.getByTestId('payment-cash-cash'), '3000');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('payment-confirm').props.accessibilityState.disabled).toBe(false);
+    });
+
+    // First attempt — the connection dies.
+    fireEvent.press(screen.getByTestId('payment-confirm'));
+    await waitFor(() => expect(screen.getByTestId('payment-error')).toBeTruthy());
+
+    // The seller presses Lipa again, exactly as they would in a shop.
+    fireEvent.press(screen.getByTestId('payment-confirm'));
+
+    await waitFor(() => expect(saleKeys()).toHaveLength(2));
+
+    const [first, second] = saleKeys().map(
+      (request) => (request.body as Record<string, unknown>).idempotencyKey,
+    );
+
+    expect(first).toBeTruthy();
+    expect(second).toBe(first);
+  });
+
+  it('tells the seller that pressing again is safe, rather than leaving them guessing', async () => {
+    const { fetchFn } = flakyBackend();
+
+    renderSale(fetchFn);
+    await openPayment();
+
+    fireEvent.press(screen.getByTestId('payment-method-cash'));
+    fireEvent.press(screen.getByTestId('payment-confirm'));
+
+    await waitFor(() => expect(screen.getByTestId('payment-error')).toBeTruthy());
+
+    // The one thing a seller standing in front of a customer needs to know.
+    expect(screen.getByText(/hakitauzwa mara mbili/)).toBeTruthy();
+  });
+
+  it('mints a fresh key for the next sale, so two customers are never merged', async () => {
+    const { fetchFn, sent } = stubBackend({
+      ...defaults,
+      '/products?': { body: [sabuni] },
+      '/sales': { status: 201, body: completedSale },
+    });
+
+    const { onDone } = renderSale(fetchFn);
+    await openPayment();
+    fireEvent.press(screen.getByTestId('payment-method-cash'));
+    fireEvent.press(screen.getByTestId('payment-confirm'));
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+
+    // Back to an empty cart, and a second customer.
+    await openPayment();
+    fireEvent.press(screen.getByTestId('payment-method-cash'));
+    fireEvent.press(screen.getByTestId('payment-confirm'));
+
+    await waitFor(() => {
+      expect(sent.filter((request) => request.url.includes('/sales'))).toHaveLength(2);
+    });
+
+    const [first, second] = sent
+      .filter((request) => request.url.includes('/sales'))
+      .map((request) => (request.body as Record<string, unknown>).idempotencyKey);
+
+    expect(second).not.toBe(first);
+  });
+
+  it('abandons the key when the cart is edited, because that is a different sale', async () => {
+    // The mirror risk of the fix. Reusing a key across an edit would make the
+    // backend answer with the sale the first attempt created — and the item
+    // the seller just added would silently vanish off the receipt.
+    const { fetchFn, sent } = flakyBackend();
+
+    renderSale(fetchFn);
+    await openPayment();
+
+    fireEvent.press(screen.getByTestId('payment-method-cash'));
+    fireEvent.press(screen.getByTestId('payment-confirm'));
+    await waitFor(() => expect(screen.getByTestId('payment-error')).toBeTruthy());
+
+    const failedKey = (sent.find((r) => r.url.includes('/sales'))?.body as Record<string, unknown>)
+      .idempotencyKey;
+
+    // The seller closes the sheet, adds another one, and pays again.
+    fireEvent.press(screen.getByTestId('payment-cancel'));
+    await waitFor(() => expect(screen.getByTestId('cart-increment-kipande')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('cart-increment-kipande'));
+
+    fireEvent.press(screen.getByTestId('sale-pay'));
+    await waitFor(() => expect(screen.getByTestId('payment-total')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('payment-method-cash'));
+    fireEvent.press(screen.getByTestId('payment-confirm'));
+
+    await waitFor(() => {
+      expect(sent.filter((request) => request.url.includes('/sales'))).toHaveLength(2);
+    });
+
+    const retriedKey = (
+      sent.filter((r) => r.url.includes('/sales'))[1].body as Record<string, unknown>
+    ).idempotencyKey;
+
+    expect(retriedKey).not.toBe(failedKey);
+  });
+});

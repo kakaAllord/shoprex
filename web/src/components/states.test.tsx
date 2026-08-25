@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { EmptyState, ErrorState, OwnerOnlyNote } from './states';
+import { EmptyState, ErrorState, LoadingState, OwnerOnlyNote } from './states';
 import { ShoprexApiError } from '../lib/api/client';
 
 describe('EmptyState', () => {
@@ -59,5 +59,46 @@ describe('OwnerOnlyNote', () => {
 
     expect(screen.getByText(/Only the shop owner can do this/)).toBeInTheDocument();
     expect(screen.queryByRole('button')).toBeNull();
+  });
+});
+
+/**
+ * Phase 8 — the fourth state.
+ *
+ * The console had empty, error, and permission-denied, and nothing at all for
+ * the seconds a slow connection actually spends waiting. These pages are
+ * server components, so until now the browser sat on the *previous* page and
+ * the reader had no way to tell a slow tap from an ignored one.
+ */
+describe('LoadingState', () => {
+  it('says something is happening, in words, not only in animation', () => {
+    render(<LoadingState label="Inapakia · Loading…" />);
+
+    expect(screen.getByText(/Inapakia/)).toBeInTheDocument();
+  });
+
+  it('announces itself to a screen reader rather than only to the eye', () => {
+    render(<LoadingState label="Inapakia · Loading…" />);
+
+    const status = screen.getByRole('status');
+
+    // `polite`, not `assertive`: a page loading should not interrupt whatever
+    // the reader is already being told.
+    expect(status).toHaveAttribute('aria-live', 'polite');
+  });
+
+  it('draws the shape of the table that is coming, so the page does not jump', () => {
+    const { container } = render(<LoadingState label="Inapakia" rows={4} />);
+
+    expect(container.querySelectorAll('.shoprex-loading__bar')).toHaveLength(4);
+  });
+
+  it('hides the decoration from anybody listening rather than reading', () => {
+    const { container } = render(<LoadingState label="Inapakia" />);
+
+    expect(container.querySelector('.shoprex-loading__bars')).toHaveAttribute(
+      'aria-hidden',
+      'true',
+    );
   });
 });

@@ -113,6 +113,11 @@ export class StockService {
    * Cartons, not thirty-six Pieces — because that is what is on the floor. The
    * whole receipt is one transaction: a delivery that fails on its third line
    * must not leave the first two in stock.
+   *
+   * A delivery is **idempotent on `idempotencyKey`**, exactly as a sale is
+   * (Phase 8). The network a pilot shop runs on drops responses, not requests:
+   * the crate is already recorded and the phone never hears so. Without a key,
+   * the only safe thing the stock keeper could do was nothing.
    */
   async receiveStock(
     principal: AuthenticatedUser,
@@ -125,6 +130,19 @@ export class StockService {
 
     if (dto.lines.length === 0) {
       throw new BadRequestException('A delivery needs at least one line');
+    }
+
+    // The retry that arrives after the first attempt committed — the common
+    // case, and the cheap one. No stock is moved twice.
+    const alreadyRecorded = await this.findReceiptByIdempotencyKey(
+      principal,
+      businessId,
+      branchId,
+      dto.idempotencyKey,
+    );
+
+    if (alreadyRecorded) {
+      return alreadyRecorded;
     }
 
     const resolved = await Promise.all(
@@ -141,6 +159,7 @@ export class StockService {
           receivedById: principal.userId,
           deviceId: principal.deviceId,
           note: dto.note?.trim() || null,
+          idempotencyKey: dto.idempotencyKey ?? null,
         },
       });
 
@@ -197,11 +216,80 @@ export class StockService {
       );
 
       return created.id;
-    });
+    })
+    .catch((error) => this.asExistingReceipt(error, businessId, dto.idempotencyKey));
 
     this.logger.log(`Stock received: ${receipt} at branch ${branchId}`);
 
     return this.findReceipt(principal, branchId, receipt);
+  }
+
+  /**
+   * A delivery already recorded under this key.
+   *
+   * Same shape as `SalesService.findByIdempotencyKey`, including the refusal
+   * when the key was used in another branch: that is not a retry of the same
+   * request but a key being reused, and answering with the other branch's
+   * receipt would quietly tell a stock keeper that goods reached a shelf they
+   * are not standing at.
+   */
+  private async findReceiptByIdempotencyKey(
+    principal: AuthenticatedUser,
+    businessId: string,
+    branchId: string,
+    idempotencyKey: string | undefined,
+  ): Promise<StockReceiptView | null> {
+    if (!idempotencyKey) {
+      return null;
+    }
+
+    const existing = await this.prisma.stockReceipt.findUnique({
+      where: { businessId_idempotencyKey: { businessId, idempotencyKey } },
+      select: { id: true, branchId: true },
+    });
+
+    if (!existing) {
+      return null;
+    }
+
+    if (existing.branchId !== branchId) {
+      throw new ConflictException(
+        'That idempotency key was already used for a delivery in another branch',
+      );
+    }
+
+    return this.findReceipt(principal, branchId, existing.id);
+  }
+
+  /**
+   * The race the unique index catches: two identical deliveries in flight at
+   * once, neither of which saw the other's row when it looked. Exactly one
+   * insert wins and the loser returns the winner's receipt instead of an error.
+   */
+  private async asExistingReceipt(
+    error: unknown,
+    businessId: string,
+    idempotencyKey: string | undefined,
+  ): Promise<string> {
+    if (
+      idempotencyKey &&
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002' &&
+      String(error.meta?.target ?? '').includes('idempotency_key')
+    ) {
+      const winner = await this.prisma.stockReceipt.findUnique({
+        where: { businessId_idempotencyKey: { businessId, idempotencyKey } },
+        select: { id: true },
+      });
+
+      if (winner) {
+        this.logger.log(`Duplicate delivery request collapsed onto ${winner.id}`);
+
+        return winner.id;
+      }
+    }
+
+    throw error;
   }
 
   /**

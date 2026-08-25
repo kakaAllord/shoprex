@@ -94,6 +94,20 @@ never logged, and absent from the audit summary. `test/openapi.e2e-spec.ts`
 names `qrSvg` alongside `code` and `password` in its response-leak walk, so it
 cannot later appear on a device view on the grounds that an image is harmless.
 
+**And it expires with the code, because it is the code** — written down as
+tests in Phase 8 rather than left as an implication. The reason it is worth
+testing is that it would be entirely natural to build the other way round: a QR
+*looks* like a convenience rather than a secret, and a printed one pinned to a
+wall is exactly the artefact somebody expects to keep working. It must not.
+`test/device-enrollment.e2e-spec.ts` re-encodes the returned code with the same
+options the backend uses and asserts byte-identical SVG — proving the symbol
+carries that code and nothing else — then expires it and proves the scanned
+string is refused, that a code already redeemed by somebody *typing* it refuses
+the scan, and that an `expiresInMinutes` outside the configured range is
+**refused rather than clamped**. Silently clamping would hand back a code that
+outlives what the owner believed they asked for, which is the wrong way for a
+secret's lifetime to be wrong.
+
 There is no device password hash. The credential is a *reference* to the signing
 -in person's own password — the "or equivalent credential reference" this
 section allows — so there is one password in one place with no drift between
@@ -255,6 +269,22 @@ Each `StockMovement` snapshots the `conversionFactor` it used, and each
 `StockReceiptLine` its `normalizedQuantity`, so a later change to a package
 factor cannot rewrite what a past delivery contained.
 
+**Receiving is idempotent, as of Phase 8.** `POST
+/branches/{branchId}/stock-receipts` takes an optional `idempotencyKey` under
+the same rule a sale's carries: a repeated key returns the receipt the first
+attempt created, the race is caught by
+`@@unique([businessId, idempotencyKey])`, and a key reused in a *different*
+branch answers `409` rather than handing back another shelf's delivery.
+
+It is **nullable** where a sale's is required, and deliberately: the column
+arrived after the route did, and PostgreSQL treats NULLs as distinct in a
+unique index, so a client that sends no key behaves exactly as it did before
+and never collides with another. The phone always sends one.
+
+Without it, a delivery was the one write in Shoprex that a dropped response
+made unsafe to retry — and V1 has no way to correct a saved delivery, so the
+only remedy for a doubled crate was a compensating sale that never happened.
+
 ## 6. Sales rules
 
 A sale contains one or more lines. Each line preserves the commercial unit actually sold. If a product is sold as `2 Cartons` and `5 Pieces`, those remain separate lines even if the normalized quantity could be combined.
@@ -304,6 +334,21 @@ The same product and unit appearing on two lines of one sale is **refused**
 rather than added up. The phone's cart is supposed to increment the line it
 already has, and quietly summing them would hide that bug instead of surfacing
 it.
+
+**The client's half of idempotency, corrected in Phase 8.** A key is only worth
+anything if the retry carries the *same* one, and until Phase 8 the phone did
+not: `SaleScreen` minted a fresh key inside the submit handler on every attempt,
+from an incrementing counter and `Date.now()`. The backend's guarantee was exact
+and unreachable — a lost response meant the seller pressed **Lipa** again and a
+second sale was rung up, with its own stock movements.
+
+The rule is now: **mint once per cart, reuse on every retry, discard on success
+— or when the cart changes.** That last clause is the non-obvious half. Reusing
+a key across an *edit* would be worse than minting a new one, because the
+backend would answer with the sale the first attempt created and the line the
+seller had just added would vanish from a receipt they watched themselves build.
+A changed cart is a different sale; an unchanged one pressed twice is a retry.
+`ReceiveScreen` follows the identical rule for the basket.
 
 **Discontinuing a product, as built in Phase 6.** `Product.isActive` is now
 enforced, and enforced at exactly one place: `StockService.resolveUnit`, which

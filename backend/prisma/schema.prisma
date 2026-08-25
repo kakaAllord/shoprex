@@ -411,6 +411,15 @@ model StockReceipt {
   /// The phone it was recorded on, when it was recorded on one.
   deviceId     String?  @map("device_id")
   note         String?
+  /// Supplied by the client, unique within the business, exactly as a sale's
+  /// is. A retried delivery returns the receipt the first attempt created
+  /// rather than putting the same crate of soap into stock twice.
+  ///
+  /// Optional, unlike `Sale.idempotencyKey`, and deliberately so: PostgreSQL
+  /// treats NULLs as distinct in a unique index, so a client that sends no key
+  /// behaves exactly as it did before this column existed and never collides
+  /// with another. Phase 8 added it; the phone always sends one.
+  idempotencyKey String? @map("idempotency_key")
   createdAt    DateTime @default(now()) @map("created_at")
 
   business   Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -418,6 +427,7 @@ model StockReceipt {
   receivedBy User               @relation(fields: [receivedById], references: [id], onDelete: Cascade)
   lines      StockReceiptLine[]
 
+  @@unique([businessId, idempotencyKey])
   @@index([businessId, createdAt])
   @@index([branchId, createdAt])
   @@map("stock_receipts")

@@ -62,4 +62,15 @@ export class CreateStockReceiptDto {
   @IsString()
   @MaxLength(240)
   note?: string;
+
+  @ApiPropertyOptional({
+    example: 'device-7f3a:1756100000000:4',
+    maxLength: 200,
+    description:
+      'Unique within the business. Send the same key when retrying a delivery whose response never arrived, and the backend returns the receipt the first attempt created rather than putting the same crate into stock twice. Optional so a client written before Phase 8 still works; the Android app always sends one.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  idempotencyKey?: string;
 }

@@ -308,7 +308,18 @@ describe('OpenAPI contract (e2e)', () => {
       // Stock belongs to a branch, so the branch is a path segment. That is
       // also what keeps this allowlist from growing: receiving a delivery
       // never needed to name a branch in a request body.
-      expect(propertiesOf('CreateStockReceiptDto')).toEqual(['lines', 'note']);
+      //
+      // `idempotencyKey` was added in Phase 8 and this assertion caught it,
+      // which is the pin working rather than the pin being in the way: the
+      // list is exact so that any new field on a tenant-adjacent body has to
+      // be looked at once. It names no tenant and no branch — it is a
+      // client-chosen string, scoped to the caller's own business by the
+      // backend exactly as a sale's is.
+      expect(propertiesOf('CreateStockReceiptDto')).toEqual([
+        'lines',
+        'note',
+        'idempotencyKey',
+      ]);
       expect(document.paths['/api/v1/branches/{branchId}/stock-receipts']).toBeDefined();
     });
 

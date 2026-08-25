@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 
+# --- Untracked ----
+untracked/
+
 # --- Node / TypeScript ---
 node_modules/
 dist/
@@ -34,6 +37,13 @@ mobile/ios/
 *.p8
 *.p12
 *.mobileprovision
+
+# --- Database backups (Phase 8) ---
+# `node backend/scripts/backup.js` writes here. A dump is a complete copy of a
+# shop's trading — every price, every debtor's name, every staff password hash
+# — so it is the single worst file in this repository to commit by accident.
+backend/backups/
+*.dump
 
 # --- Editors / OS ---
 .vscode/*
