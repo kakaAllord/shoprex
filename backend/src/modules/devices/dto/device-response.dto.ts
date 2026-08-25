@@ -57,6 +57,12 @@ export class IssuedEnrollmentViewDto implements IssuedEnrollmentView {
   })
   code!: string;
 
+  @ApiProperty({
+    description:
+      'The same one-time code drawn as a scannable SVG, so a phone at the counter can read it rather than somebody spelling it out. It carries the **bare code and nothing else** — a scan and a typed entry hand the redemption route an identical string. Shown **once**, on exactly the same terms as `code`, and never stored.',
+  })
+  qrSvg!: string;
+
   @ApiProperty({ format: 'date-time', description: 'Backend server clock.' })
   expiresAt!: Date;
 

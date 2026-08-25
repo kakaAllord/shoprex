@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { colors, radius, spacing } from '../../app/theme';
+import { colors, radius, spacing } from '../app/theme';
 
 /**
  * Choosing a unit, rather than spelling one.

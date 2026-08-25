@@ -79,6 +79,21 @@ the **branch** it belongs to; a server-minted uuid `id` *is* the `device_id`; a
 by everyone who works there, so that a flat battery does not end a shift. The
 `name` is a label the owner chooses — "Simu ya kaunta" — never an identity.
 
+**The QR arrived in the Phase 7 session**, at the owner's request, and it is
+what this section always specified: `POST /devices/enrollments` returns the
+one-time code together with `qrSvg`, the same code drawn as a scannable SVG.
+It is emphatically **not** a link — this section's "QR code *and link*" is
+satisfied by the token alone, and a URL would have added a second thing to
+keep in step with the first for no gain. The payload is the bare code, so
+scanning and typing submit an identical string and there is one redemption
+path with one set of rules.
+
+Because the picture *is* the credential rather than a picture about it, it
+carries every rule the code carries: returned once at issue, never persisted,
+never logged, and absent from the audit summary. `test/openapi.e2e-spec.ts`
+names `qrSvg` alongside `code` and `password` in its response-leak walk, so it
+cannot later appear on a device view on the grounds that an image is harmless.
+
 There is no device password hash. The credential is a *reference* to the signing
 -in person's own password — the "or equivalent credential reference" this
 section allows — so there is one password in one place with no drift between
@@ -387,6 +402,34 @@ backend recomputes all of it and refuses the sale if it does not add up.
 The backend groups transactions by the business/branch timezone, not by the server’s timezone. V1 should default to Tanzania time unless a future multi-country configuration is approved.
 
 Daily reports include business and branch identity, selected date, total sales, payment-method totals, debt total, stock received, and transaction summaries. Profit and expense calculations are excluded.
+
+**As built in Phase 7.** A shop-local day is resolved exactly once, by
+[backend/src/domain/day-window.ts](../../backend/src/domain/day-window.ts):
+`dayWindow(date, timezone)` turns a `YYYY-MM-DD` calendar date and
+`Business.timezone` into the half-open UTC interval `[startUtc, endUtc)` that a
+`createdAt` comparison actually uses, resolved through the platform's own IANA
+database rather than a hard-coded offset — Tanzania has no daylight saving, but
+the module is proven against zones that do, so it cannot quietly assume one.
+`GET /branches/{branchId}/reports/daily` and the sales list's `?date=` filter
+both call this and nothing else, which is what keeps them from disagreeing
+about where one day ends and the next begins.
+
+The figures — totals, the payment-method breakdown, debts grouped by name, per-
+seller totals, best sellers by money taken, and what arrived — are pure
+functions over already-snapshotted values in
+[backend/src/domain/report.ts](../../backend/src/domain/report.ts): every input
+is a value a sale or a receipt stored at the moment it happened
+(`SaleLine.productName`, `SalePayment.methodName`, and so on), never a live join
+back to `Product`, `ProductUnit`, or `PaymentMethod`. A method renamed mid-day
+stays one row in that day's breakdown, and a report read back next month still
+shows that month's prices and names.
+
+The PDF is generated on the backend from **the same response** the dashboard
+receives (`daily-report.pdf.ts`), composed with a small dependency-free writer,
+[backend/src/domain/pdf.ts](../../backend/src/domain/pdf.ts). It computes
+nothing — no total, no subtraction — so the dashboard and the PDF cannot come
+to disagree; `test/reports.e2e-spec.ts` proves this by reading the totals back
+out of the generated PDF bytes rather than trusting that the two paths agree.
 
 ## 9. Minimum domain tables
 

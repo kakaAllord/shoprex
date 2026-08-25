@@ -12,7 +12,13 @@ export interface ActionState {
    * Set only where a screen must show something the backend will never say
    * again: today, the one-time device enrollment code.
    */
-  secret?: { code: string; deviceName: string; expiresAt: string } | null;
+  secret?: {
+    code: string;
+    /** The same code as a scannable SVG. Shown once, stored nowhere. */
+    qrSvg: string;
+    deviceName: string;
+    expiresAt: string;
+  } | null;
 }
 
 export const IDLE: ActionState = { error: null, message: null, secret: null };

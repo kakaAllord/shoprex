@@ -12,8 +12,9 @@ import { Profile } from '../../core/api/apiClient';
  * has not been granted to them and who to ask.
  *
  * Selling stays the largest, greenest thing here whatever else is granted —
- * AGENT.md's design rule. Receiving and the stock view sit under it as a pair
- * of smaller tiles, because a shop sells all day and takes a delivery once.
+ * AGENT.md's design rule. Receiving, the stock view, and the catalogue sit
+ * under it as smaller tiles, because a shop sells all day and takes a delivery
+ * once.
  *
  * Somebody granted nothing at all is told so in words, with who to ask. There
  * is no dimmed tile to poke at anywhere on this screen.
@@ -23,12 +24,14 @@ export function HomeScreen({
   onOpenSale,
   onOpenReceive,
   onOpenStock,
+  onOpenProducts,
   onSignOut,
 }: {
   profile: Profile;
   onOpenSale: () => void;
   onOpenReceive: () => void;
   onOpenStock: () => void;
+  onOpenProducts: () => void;
   onSignOut: () => void;
 }) {
   // The owner is the authority that grants these, so requiring them to grant
@@ -38,6 +41,11 @@ export function HomeScreen({
   const maySell = profile.permissions.includes('SELL') || isOwner;
   const mayReceive = profile.permissions.includes('RECEIVE_STOCK') || isOwner;
   const mayViewStock = profile.permissions.includes('VIEW_STOCK') || isOwner;
+  // Bidhaa is a read of the catalogue, which any signed-in member of staff may
+  // do — the backend's product search asks for no permission beyond being
+  // staff. Whether the *add* button appears inside is a separate question the
+  // screen asks for itself, from these same two permissions.
+  const mayAddProducts = maySell || mayReceive;
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
@@ -87,6 +95,26 @@ export function HomeScreen({
           ) : null}
         </View>
       ) : null}
+
+      {/*
+        Bidhaa is on its own row rather than squeezed alongside, because it is
+        the one destination everybody reaches: reading the catalogue needs no
+        permission beyond being staff, so this tile is never absent the way the
+        two above can be.
+      */}
+      <Pressable
+        accessibilityRole="button"
+        testID="home-open-products"
+        onPress={onOpenProducts}
+        style={({ pressed }) => [styles.wideTile, pressed && styles.tilePressed]}
+      >
+        <Text style={styles.tileTitle}>Bidhaa</Text>
+        <Text style={styles.tileSubtitle}>
+          {mayAddProducts
+            ? 'Angalia bei, na ongeza bidhaa mpya · Prices, and add a new product'
+            : 'Angalia bei za bidhaa · Product prices'}
+        </Text>
+      </Pressable>
 
       {!maySell && !mayReceive && !mayViewStock ? (
         <Banner
@@ -170,6 +198,16 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     minHeight: 84,
     justifyContent: 'center',
+  },
+  wideTile: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    minHeight: 72,
+    justifyContent: 'center',
+    marginBottom: spacing.md,
   },
   tilePressed: { backgroundColor: colors.surfaceMuted },
   tileTitle: { color: colors.text, fontSize: 18, fontWeight: '700' },

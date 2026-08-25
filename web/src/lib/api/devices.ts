@@ -22,6 +22,13 @@ export interface DeviceView {
 export interface IssuedEnrollment {
   enrollmentId: string;
   code: string;
+  /**
+   * The same code drawn as a scannable SVG, so a phone at the counter can read
+   * it instead of somebody spelling it out. It is the code, not a picture
+   * about the code — so it is shown once and stored nowhere, exactly like
+   * `code` itself.
+   */
+  qrSvg: string;
   branchId: string;
   branchName: string;
   deviceName: string;

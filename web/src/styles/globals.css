@@ -613,6 +613,27 @@ body {
   word-break: break-all;
 }
 
+/*
+ * The same code, for a phone that is standing at the counter. On a white
+ * plate rather than the panel's emerald wash: a QR wants maximum contrast
+ * against its quiet zone, and a tinted background is exactly what makes a
+ * reader hesitate at an angle or in poor light.
+ */
+.shoprex-secret__qr {
+  display: inline-block;
+  background: #fff;
+  padding: 8px;
+  border-radius: 12px;
+  margin: 12px 0 8px;
+  line-height: 0;
+}
+
+.shoprex-secret__qr svg {
+  display: block;
+  width: 200px;
+  height: 200px;
+}
+
 .shoprex-table td .shoprex-sub {
   display: block;
   font-size: 12px;

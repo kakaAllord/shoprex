@@ -26,6 +26,7 @@ const handlers = () => ({
   onOpenSale: jest.fn(),
   onOpenReceive: jest.fn(),
   onOpenStock: jest.fn(),
+  onOpenProducts: jest.fn(),
   onSignOut: jest.fn(),
 });
 
@@ -132,6 +133,40 @@ describe('receiving stock and the stock view', () => {
     expect(screen.queryByTestId('home-open-sale')).toBeNull();
     expect(screen.queryByTestId('home-open-receive')).toBeNull();
     expect(screen.queryByTestId('home-open-stock')).toBeNull();
+  });
+
+  /**
+   * Bidhaa is the one tile that is never absent: reading the catalogue asks
+   * for no permission beyond being staff, so somebody granted nothing at all
+   * can still look up what a thing costs.
+   */
+  it('offers the catalogue to everyone, including somebody granted nothing', () => {
+    const on = show({ ...worker, permissions: [] });
+
+    fireEvent.press(screen.getByTestId('home-open-products'));
+
+    expect(on.onOpenProducts).toHaveBeenCalled();
+  });
+
+  it('offers the catalogue alongside the other tiles when everything is granted', () => {
+    const on = show({ ...worker, permissions: ['SELL', 'RECEIVE_STOCK', 'VIEW_STOCK'] });
+
+    fireEvent.press(screen.getByTestId('home-open-products'));
+
+    expect(on.onOpenProducts).toHaveBeenCalled();
+    expect(screen.getByText('Bidhaa')).toBeTruthy();
+  });
+
+  it('says the catalogue can be added to only when this person could add', () => {
+    show({ ...worker, permissions: ['SELL'] });
+    expect(screen.getByText(/ongeza bidhaa mpya/i)).toBeTruthy();
+
+    screen.unmount();
+
+    // VIEW_STOCK alone reads the shelf but creates nothing.
+    show({ ...worker, permissions: ['VIEW_STOCK'] });
+    expect(screen.queryByText(/ongeza bidhaa mpya/i)).toBeNull();
+    expect(screen.getByText(/Angalia bei za bidhaa/i)).toBeTruthy();
   });
 
   it('keeps selling the largest thing on the screen when all three are granted', () => {

@@ -45,6 +45,7 @@ describe('Device enrollment, shared sign-in, and revocation (e2e)', () => {
     return response.body as {
       enrollmentId: string;
       code: string;
+      qrSvg: string;
       expiresAt: string;
       deviceName: string;
       branchId: string;
@@ -229,6 +230,65 @@ describe('Device enrollment, shared sign-in, and revocation (e2e)', () => {
         .set(authed(ownerToken))
         .send({ branchId: counterBranchId })
         .expect(400);
+    });
+
+    /**
+     * The QR exists so two people standing together do not have to read a
+     * secret aloud. What makes it safe to offer as an alternative rather than
+     * as a second mechanism is that it carries the *same string* — so there is
+     * one redemption path, not two.
+     */
+    it('draws the code as a scannable QR alongside it', async () => {
+      const issued = await issueCode(counterBranchId, 'Simu ya QR');
+
+      expect(issued.qrSvg).toContain('<svg');
+      expect(issued.qrSvg).toContain('</svg>');
+      // Inline in the console: nothing for a browser to go and fetch.
+      expect(issued.qrSvg).not.toContain('<image');
+      expect(issued.qrSvg).not.toContain('<script');
+    });
+
+    it('gives a different phone a different symbol', async () => {
+      const [first, second] = [
+        await issueCode(counterBranchId, 'Simu A'),
+        await issueCode(counterBranchId, 'Simu B'),
+      ];
+
+      expect(first.code).not.toBe(second.code);
+      expect(first.qrSvg).not.toBe(second.qrSvg);
+    });
+
+    /**
+     * The QR is the code, not a picture about it — so it is subject to the
+     * same "shown once" rule, and the audit log must not have quietly gained a
+     * copy of the secret in image form.
+     */
+    it('keeps the QR out of the audit log, exactly like the code', async () => {
+      const issued = await issueCode(counterBranchId, 'Simu ya ukaguzi');
+
+      const events = await prisma.auditEvent.findMany({
+        where: { action: 'DEVICE_ENROLLMENT_ISSUED' },
+        select: { summary: true },
+      });
+
+      expect(events.length).toBeGreaterThan(0);
+
+      for (const event of events) {
+        expect(event.summary).not.toContain(issued.code);
+        expect(event.summary).not.toContain('<svg');
+      }
+    });
+
+    it('stores only the hash — neither the code nor its picture is persisted', async () => {
+      const issued = await issueCode(counterBranchId, 'Simu ya hifadhi');
+
+      const row = await prisma.deviceEnrollmentToken.findUnique({
+        where: { id: issued.enrollmentId },
+      });
+
+      expect(row).not.toBeNull();
+      expect(JSON.stringify(row)).not.toContain(issued.code);
+      expect(JSON.stringify(row)).not.toContain('<svg');
     });
   });
 

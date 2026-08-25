@@ -226,6 +226,7 @@ export async function issueEnrollmentAction(
       message: null,
       secret: {
         code: issued.code,
+        qrSvg: issued.qrSvg,
         deviceName: issued.deviceName,
         expiresAt: issued.expiresAt,
       },

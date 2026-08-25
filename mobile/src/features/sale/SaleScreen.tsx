@@ -33,9 +33,9 @@ import {
   toSaleLines,
 } from '../../domain/cart';
 import { PaymentMethod } from '../../domain/payment';
-import { NewProductSheet } from './NewProductSheet';
+import { NewProductSheet } from '../../components/NewProductSheet';
 import { PaymentSheet } from './PaymentSheet';
-import { ScannerSheet } from './ScannerSheet';
+import { ScannerSheet } from '../../components/ScannerSheet';
 
 /**
  * Mauzo — the screen the whole product is for.

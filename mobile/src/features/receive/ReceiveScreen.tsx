@@ -27,8 +27,8 @@ import {
   setLineCost,
   toReceiptLines,
 } from '../../domain/receiving';
-import { NewProductSheet } from '../sale/NewProductSheet';
-import { ScannerSheet } from '../sale/ScannerSheet';
+import { NewProductSheet } from '../../components/NewProductSheet';
+import { ScannerSheet } from '../../components/ScannerSheet';
 
 /**
  * Pokea mzigo — putting a delivery on the shelf.

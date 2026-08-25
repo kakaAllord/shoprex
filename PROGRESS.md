@@ -17,16 +17,18 @@ If Part A and Part B ever disagree (e.g. the table says "Complete" but a section
 | 4 | React Native mobile selling flow | Complete | Yes — every clause driven end to end, over HTTP as a worker and through the screens, see §4. Revised after owner review, see §4a | 2026-08-23 |
 | 5 | React Native stock receiving and operational visibility | Complete | Yes — both halves of the clause driven by real tests: the backend over HTTP as a stock keeper, the phone through the screens, see §5 | 2026-08-23 |
 | 6 | Next.js owner and admin web app | Complete | Yes — every clause driven end to end over HTTP by all four roles, plus a live console smoke test, see §6 | 2026-08-23 |
-| 7 | Reports and PDF | Not started | — | — |
+| 7 | Reports and PDF | Complete | Yes — every clause driven end to end over real HTTP, plus a live console and PDF-download check against a running backend and web server, see §7 | 2026-08-24 |
 | 8 | Pilot hardening and launch | Not started | — | — |
 
 **Status values:** `Not started` / `In progress` / `Blocked` / `Complete`. Only mark `Complete` when the acceptance-check column says `Yes`, backed by a real test run referenced in that phase's section below.
 
-**Active phase:** Phase 7, not yet started. Phase 6 closed on 2026-08-23 with **848** automated tests passing across all three surfaces — see §6. It was the first phase since Phase 3 with real backend work in it, exactly as §5 predicted: **seven new routes** and one additive migration. Five of those routes settle debts earlier phases deliberately took out and recorded — the price edit and the barcode attach (§3 known issues 2 and 3), the payment-method writes Phase 4 deferred, and the sales list Phase 4 shipped only the receipt half of. The sixth and seventh, `PATCH /businesses/{id}` and its `BusinessActiveGuard`, were added at the owner's request during the session so a platform administrator can suspend a shop account and have it take effect on the very next request rather than at token expiry. `web/` went from 4 routes to 16 and from 20 tests to 61.
+**Active phase:** Phase 8, not yet started. Phase 7 closed on 2026-08-24 with **1,007** automated tests passing across all three surfaces (up from 848 at the start of the session: backend unit 152→252, backend e2e 430→489, web 61 unchanged in count but exercising new code, mobile 205 untouched) — see §7. It added **three new routes** and **no new table**: the day boundary and every figure are computed from data Phases 1–6 already recorded. The sales list also gained the `?date=` filter that §6's handoff note deliberately deferred here, so it and the report resolve a day through the exact same code.
 
-Two pieces of existing behaviour were corrected deliberately, both recorded in §6: `Product.isActive` is now actually enforced (it was honoured in search and nowhere else, so "discontinue" would have been a button that half-worked), and `currentProfile()` no longer treats every backend failure as a sign-out.
+Two things carried from §6 are now current: the owner overview and the sales-list lede no longer promise reports "next phase" — they point at Ripoti, which now exists.
 
-**Exact next action:** begin Phase 7's reports and PDF per `docs/v1/03_SHOPREX_V1_IMPLEMENTATION_PHASES.md`, and mark the Phase 7 row `In progress` when that work starts. Nothing blocks it. **Decide local-day boundaries once, in the backend**, and let both the dashboard and the PDF read the same answer — the Phase 6 sales list deliberately has no date filter for exactly this reason. Note also that any report must read the **snapshots** on the sale (`methodName`, `unitPriceTzs`, `productName`) rather than joining back to the live `PaymentMethod` or `ProductUnit` rows, or it will report last month using this month's names and prices. **Before writing any of it, run the full suite** — 848 is the number it must start from.
+**After Phase 7 closed**, the owner asked for two more things in the same session — QR device enrollment, and a reachable way to add products on the phone. Both are done and recorded in **§7a**; neither was new V1 scope (doc 02 §3 always specified the QR, and Phase 8 already listed QR enrollment tests). The suite is now at **1,038**. On **2026-08-25** the owner also approved the long-open move of the shared mobile sheets out of `features/sale/` into `src/components/` — behaviour-neutral, and it closes §6's blocked question 3.
+
+**Exact next action:** begin Phase 8's pilot hardening per `docs/v1/03_SHOPREX_V1_IMPLEMENTATION_PHASES.md`, and mark the Phase 8 row `In progress` when that work starts. Nothing blocks it. Phase 8's cumulative isolation pass should **confirm** reports isolation (§7's suite already covers it) rather than discover it fresh. Its **QR enrollment expiry tests** now have a QR to test. **Before writing any of it, run the full suite** — 1,038 is the number it must start from, and a **new mobile build** is needed before the scanner can be tried by hand.
 
 ---
 
@@ -1464,7 +1466,262 @@ Nothing blocks Phase 7. Open, and each needing the owner:
 - Prices and costs are integers. Do not introduce a float or a Decimal for money without an ADR.
 
 ### §7 — Reports and PDF
-*(empty until started)*
+
+**Status:** Complete. **Verified:** Yes — every clause of the acceptance check is driven end to end over real HTTP, plus a live check against a running backend and web server (see Manual testing below). **Date:** 2026-08-24.
+
+**No new table.** A report is a read across data every earlier phase already recorded — sales, sale lines, payments, stock receipts. The only schema-adjacent addition is the `date` query parameter on the existing sales list. Three new routes:
+
+| Route | Auth | Purpose |
+|---|---|---|
+| `GET /branches/{branchId}/reports/daily` | `VIEW_REPORTS` | The day, read back: totals, payment breakdown, debts, sellers, best sellers, stock received, and the transactions themselves |
+| `GET /branches/{branchId}/reports/daily.pdf` | `VIEW_REPORTS` | The identical report as a downloadable PDF, rendered from the very response object above |
+| `GET /reports/branches` | `VIEW_REPORTS` | One day across every branch the caller may see, for comparison |
+
+#### Acceptance check evidence
+
+Phase 7's acceptance check reads: *A user can select a date and branch, view the same totals in the dashboard and PDF, and verify that the report uses Tanzania local-day boundaries derived from server-stamped timestamps. External report sending is not part of V1.*
+
+| Acceptance criterion | Where it is proven |
+|---|---|
+| **Select a date and branch** | `/owner/reports` — a branch bar (when there is more than one) and a date form, both server-rendered links/form so the URL stays bookmarkable. Backend: `?date=` on both report routes and on the sales list, all resolved by one function |
+| **The same totals in the dashboard and the PDF** | `test/reports.e2e-spec.ts` §4 — the PDF's text stream is deliberately uncompressed; the suite downloads it and greps the actual bytes for every headline total, payment row, debt row, and seller row the JSON response carried, rather than trusting the two paths agree. Verified again live — see Manual testing, Feature 3 |
+| **Tanzania local-day boundaries from server-stamped timestamps** | `src/domain/day-window.spec.ts` (31 tests, including zones with daylight saving, to prove the arithmetic is genuine and not a hard-coded +03:00) and `test/reports.e2e-spec.ts` §1 — a sale one millisecond either side of local midnight is proven to land in the correct day, never UTC midnight |
+| **External report sending is not part of V1** | Not built. The PDF is a download only |
+
+#### Files changed
+
+**Backend — new:**
+- `src/domain/day-window.ts` + `.spec.ts` — the one place a shop-local calendar day becomes a UTC instant range, via `Intl`, not a hard-coded offset
+- `src/domain/report.ts` + `.spec.ts` — pure aggregation (totals, payment breakdown, debts, sellers, received, top products) over snapshotted sale/receipt values
+- `src/domain/pdf.ts` + `.spec.ts` — the hand-written, dependency-free PDF writer (base-14 fonts only, uncompressed text stream)
+- `src/modules/reports/` — `reports.module.ts`, `reports.service.ts`, `reports.controller.ts`, `daily-report.pdf.ts`, `dto/daily-report.query.dto.ts`, `dto/report-response.dto.ts`
+- `test/reports.e2e-spec.ts` (36 tests), `test/reports-isolation.e2e-spec.ts` (17 tests)
+
+**Backend — edited:**
+- `src/app.module.ts` — registers `ReportsModule`
+- `src/modules/sales/dto/list-sales.dto.ts`, `src/modules/sales/sales.service.ts` — the `?date=` filter §6 deferred, calling `dayWindow()` and nothing else
+- `test/openapi.e2e-spec.ts` — the three new routes added to every walk (documented, bearer-required)
+
+**Web — new:**
+- `src/lib/api/reports.ts` — typed client for both report routes
+- `src/app/owner/reports/page.tsx` — the dashboard: branch bar, date form, summary tiles, payment/debt/seller/best-seller/stock-received tables, branch comparison (branches > 1 only), transactions, PDF download link
+- `src/app/api/reports/pdf/route.ts` — the download proxy. The access token lives in an httpOnly cookie, so a plain `<a href>` straight to the backend cannot carry it; this route reads the cookie server-side, forwards the bearer token, and streams the PDF bytes back with the backend's `Content-Disposition`
+
+**Web — edited:**
+- `src/components/console-nav.tsx` (+ its test) — added **Ripoti**, right after Muhtasari
+- `src/app/owner/page.tsx`, `src/app/owner/sales/page.tsx` — the ledes that promised reports "next phase" now point at Ripoti
+
+**Docs:**
+- `README.md` — API surface table, the three new routes, a "Daily reports" narrative section, the two new test-suite rows, `/owner/reports` in the web route table
+- `docs/v1/01_SHOPREX_V1_PRODUCT_CONCEPT.md` §7 — "As built in Phase 7" paragraph
+- `docs/v1/02_SHOPREX_V1_ENGINE_AND_MATH.md` §8 — the day-window/report/PDF mechanism, with file links
+
+#### Tests and results
+
+Full suite, all three surfaces, run from a clean start of the session and again after every change:
+
+```bash
+cd backend && npm run lint && npm run typecheck && npm test && npm run test:e2e && npm run build
+cd web     && npm run typecheck && npm test && npm run build
+cd mobile  && npm run typecheck && npm test
+```
+
+| Surface | Before this phase | After this phase |
+|---|---|---|
+| Backend unit | 152 / 8 suites | **252 / 11 suites** |
+| Backend e2e | 430 / 15 suites | **489 / 17 suites** |
+| Web | 61 / 13 files | 61 / 13 files (unchanged count; `console-nav.test.tsx` now also asserts Ripoti) |
+| Mobile | 205 / 12 suites | 205 / 12 suites (untouched — Phase 7 has no phone screen) |
+| **Total** | **848** | **1,007** |
+
+Lint, typecheck, and build all pass on backend and web. Mobile typecheck and test pass; mobile was not touched.
+
+#### Manual testing
+
+A green suite proves the arithmetic and the authorization; it does not prove a person can find the button, read the numbers, or actually receive a file. Both dev servers were started fresh this session (an existing backend process on :3001 predated the current code and was restarted so the new routes were actually being tested), and the flows below were driven end to end — sign-in through the real `/api/session` route so the access token sat in the same httpOnly cookie a browser would use, then the dashboard and the PDF download were fetched exactly as the browser fetches them.
+
+**Feature 1 — Reading the day back, as an owner** *(must pass)*
+
+**Setup:** backend on `:3001`, web on `:3000`, signed in as the seeded owner (`owner@shoprex.co.tz` / `shoprex12345`).
+
+1. Go to **Ripoti** in the navigation. → The page opens on today, in the shop's own day (`Ripoti ya 24 Aug 2026 kwa Tawi Kuu` on a shop whose only branch was Tawi Kuu at the time) — nobody had to pick a date for "today" to be right.
+2. With no sales yet recorded for the day: → Every table shows its empty state in words — *Hakuna malipo siku hii*, *Hakuna deni siku hii*, *Hakuna mzigo siku hii*, *Hakuna mauzo siku hii* — never a blank table that reads as broken.
+3. A product was added, stock received (50 Kipande at TSh 1,800 each), and two sales rung up through the real `POST /branches/{id}/sales` route — one cash (TSh 7,500, TSh 2,500 change), one on Deni to "Mteja wa QA" (TSh 5,000. → Reloading Ripoti now shows **Zilizoingia TSh 7,500**, **Deni TSh 5,000**, **Jumla ya mauzo TSh 12,500**; the payment table lists Taslimu and Deni separately; the debts table names "Mteja wa QA" for TSh 5,000; Sabuni ya Royco QA appears in both the best-sellers and the stock-received tables, the latter showing **Jumla ya gharama TSh 90,000** (50 × 1,800).
+4. This shop has four branches. → A branch comparison table appeared automatically (it is hidden for a one-branch shop), listing all four, with only Tawi Kuu carrying the day's numbers and the other three at zero — not merely present but each branch clickable straight to its own report.
+
+**Feature 2 — Choosing a date and a branch** *(must pass)*
+
+1. The window note under the date form reads `2026-08-23T21:00:00.000Z → 2026-08-24T21:00:00.000Z (Africa/Dar_es_Salaam)` for "today". → 21:00 UTC the evening before is midnight in Dar es Salaam — the boundary is not UTC midnight, and it says so rather than asking to be trusted.
+2. Typing a different date into the field and pressing **Tazama** reloads the page at that date via a normal GET form — the URL carries `?branch=…&date=…`, so it is bookmarkable and the back button works.
+
+**Feature 3 — Downloading the PDF, and it matching the dashboard exactly** *(must pass)*
+
+1. Press **Pakua PDF**. → A file named `shoprex-tawi-kuu-2026-08-24.pdf` downloads, `Content-Type: application/pdf`.
+2. The file is a real PDF (`%PDF-1.4` … `%%EOF`) of 5.8 KB — no embedded font, because none is needed.
+3. Reading the file's own bytes (its text stream is deliberately uncompressed) shows **every number and name the dashboard had just shown**: "Duka la Mfano", "Tawi Kuu", "TSh 12,500", "TSh 5,000", "TSh 7,500", "Sabuni ya Royco QA", "Mteja wa QA", "Taslimu", "Deni" — all present, because the PDF is composed from the same response object the dashboard renders and computes nothing of its own.
+4. Requesting the PDF **without** the session cookie → `401`. Requesting it with the cookie but no `branchId` → `400`. Visiting `/owner/reports` signed out → a `307` redirect to `/login`. Hiding the button is not authorization; the backend and the proxy both refuse on their own.
+
+**What has no automated coverage at all**
+
+1. **The console in a real browser window.** Every check above went through real HTTP with a real cookie, exactly as a browser would, but no test has clicked the button with a mouse or watched the file land in a Downloads folder.
+2. **A manager's or a plain seller's view of Ripoti**, and the amber permission-denied panel it should show. `test/reports-isolation.e2e-spec.ts` proves the backend refuses correctly (403 for a worker without `VIEW_REPORTS`, 404 for a branch a manager was not given); the web `ErrorState` component that renders that refusal is shared and unit-tested (`states.test.tsx`), but nobody has watched it render for this specific page.
+3. **A PDF reader actually opening the file.** The bytes were proven structurally sound (matched offsets, a valid xref table, real object boundaries) and were read back as text; no test or manual check opened it in Acrobat, Preview, or a phone's PDF viewer.
+4. **The page at a phone width**, same as every other console screen since Phase 6.
+
+#### Decisions made
+
+- **The PDF is hand-written, with no dependency**, per the owner's explicit choice when asked (see the session's `AskUserQuestion`): a ~600-line pure module using only the fourteen base fonts every PDF reader already has, with a deliberately uncompressed text stream. That property is what let `test/reports.e2e-spec.ts` prove "the same totals in the dashboard and the PDF" by reading generated bytes rather than by trusting two implementations to agree.
+- **The sales list's `?date=` filter was built here**, as §6's handoff note asked, calling the exact same `dayWindow()` the report calls — so a sale the report counts for a day is provably a sale the list shows for that date (`test/reports.e2e-spec.ts` §2 asserts the two agree).
+- **The branch comparison is scoped, not owner-only** — the same rule `GET /branches` already uses. A manager over two branches has the same reason to compare them an owner does; a manager over one sees a table of one.
+- **A day's transaction list is capped at 500** (`REPORT_TRANSACTION_LIMIT`) with `transactionsTruncated` saying so. The **totals above it always cover the whole day** regardless of the cut — only the row-by-row list is bounded, and the note points at the sales list's own `?date=` filter for the complete paged view.
+- **Reports are read-only.** No route here writes anything, so no new audit action was needed — doc 02 §9's audit table is unchanged by this phase.
+
+#### Known issues / risks
+
+1. **`GET /reports/branches` runs one query per branch, sequentially awaited via `Promise.all`.** Fine for the branch counts a pilot shop will have; would want batching before a shop with dozens of branches existed, which V1 does not anticipate.
+2. **The received-stock cost total silently treats a partial recording as informative rather than refusing it.** `costIsPartial` is surfaced (both in the API and with a `*` and a note in the PDF and the dashboard), but a shop that records cost for some deliveries and not others gets an honest partial total rather than a refusal to show one at all. This mirrors the existing `unitCostTzs` optionality from Phase 3 and is not a new decision, just newly visible.
+3. **The date form's browser-native `<input type="date">` renders differently across browsers and has no keyboard-only affordance tested.** Worth a look on a low-end Android browser per the "worth a look" standard the rest of the console carries.
+4. Issues carried from §1–§6 all still stand — see §6's own list for the fullest copy: the `e2e-env.js` rate-limit bug, npm allow-scripts, no ESLint config in `web/` or `mobile/`, non-interactive `prisma migrate dev`, minimal password policy, in-memory rate limiting, no refresh tokens, one-parent-per-unit, the stale `schema.prisma` header comment, Stoo unpaginated on the phone, the phone still using `branchIds[0]`, no way to correct a saved delivery, the console's shared rate-limit bucket, the 50-product cap on the products screen, `BusinessActiveGuard`'s per-request cost, and the console having no audit view for a platform administrator.
+
+#### Blocked / awaiting user
+
+Nothing blocks Phase 8. The open questions carried from §6 (a shared barcode catalogue, a second large packaging per product, moving shared mobile components, an admin-editable shop record, the pilot shop's identity, and the disk-cleanup confirmation) are all still open and still none of them block a phase — see §6 for the full table.
+
+#### Handoff notes
+
+- **`dayWindow(date, timezone)` in `src/domain/day-window.ts` is the one place a shop-local day becomes a UTC instant range.** Anything that ever needs "today," "yesterday," or a date filter should call it rather than re-deriving an offset — the module is proven against zones with daylight saving specifically so nobody is tempted to hard-code `+03:00`.
+- **`src/domain/report.ts` reads only snapshotted values** — `SaleLine.productName`, `SalePayment.methodName`, and so on — never a live `Product`, `ProductUnit`, or `PaymentMethod` row. Any future report route should follow the same rule, or it will report last month using this month's names and prices.
+- **`daily-report.pdf.ts` computes nothing.** It takes the exact `DailyReportView` the controller already built for the dashboard and lays it out. If a future change needs the PDF to show something new, add it to `DailyReportView` and `report.ts` first, and let the PDF read it from there — never compute a number inside the PDF module itself.
+- **`src/domain/pdf.ts` is a general small PDF writer**, not report-specific: it knows about pages, fonts, and right-aligned money columns, and nothing about sales. A future PDF (a stock take, a staff list) can reuse it directly.
+- **The web PDF download must go through a server route (`/api/reports/pdf`), never a direct link to the backend.** The access token lives in an httpOnly cookie for exactly the reason stated in `README.md` — page scripts, and so a plain anchor tag, cannot see it.
+- **A backend dev server was found already running on `:3001` at the start of this session's manual check, predating the Phase 7 code.** It was stopped and restarted so the live check exercised the actual new routes rather than a stale build. If a future session finds a long-uptime backend process, treat that as a signal to restart it before trusting a live check against it.
+
+### §7a — QR enrollment, and a front door for adding products (2026-08-24)
+
+**Status:** Complete. **Verified:** Yes — the QR proven to be a faithful, scannable rendering by decoding it back to a module matrix and comparing every module against the encoder, then redeeming the decoded code against a live backend; the catalogue screen driven by its own tests. **Date:** 2026-08-24.
+
+**Requested by the owner** during the Phase 7 session, immediately after Phase 7 closed:
+
+> "Also at onboarding devices, one should be able to switch between qr code or token, so for those that are close can just do qr code scanning and boom they are in, also make sure there is a way to add products in the mobile app."
+
+Recorded here rather than inside §7 because §7 is closed and its acceptance check stands as verified on its own terms. Neither of these is new V1 scope: **doc 02 §3 always specified** that "the QR code and link must contain a short-lived, single-use enrollment token", and Phase 8's deliverables already list "QR enrollment expiry tests" — so the QR was planned work pulled forward. Adding products on the phone was **already built** (doc 01 §5 requires it mid-sale); what was missing was a way to reach it.
+
+#### What was actually found first
+
+**Adding a product on the phone already worked**, in both Mauzo and Pokea mzigo, through the shared `NewProductSheet`. But it was reachable only two ways: scan a barcode the shop does not know, or search a name and get **zero** results. Both are rescues from a different task. Somebody unpacking six new lines had to pretend to sell or receive each one, and a search returning the *wrong* products — rather than none — offered no way in at all. That is almost certainly why it read as missing.
+
+So the work was not "build product creation" but "give it a front door", which is what the owner chose from the options offered.
+
+#### Decisions the owner made
+
+Both were put to the owner rather than assumed, because one was a dependency and the other a navigation change:
+
+| Question | Answer | Consequence |
+|---|---|---|
+| How to generate the QR | **Add the `qrcode` npm package** | A new backend dependency, against the hand-written precedent `pdf.ts` set in §7. Less code owned, one more supply-chain surface |
+| Where the add-product affordance goes | **A separate Bidhaa tile on Home** | Home went from three destinations to four, and the `Route` union with it — a larger change than a button inside the two existing flows |
+
+#### How it works
+
+**One code, two ways in.** `POST /devices/enrollments` now returns `qrSvg` alongside `code`: the same code drawn as a scannable SVG at error-correction level M, in Shoprex's dark neutral, with the quiet zone the spec requires. The QR carries the **bare code and nothing else** — no URL, no JSON, no server address — so scanning and typing submit an identical string to `POST /devices/enroll`. One redemption path, one set of rules, and the backend cannot tell which was used. Typing stays the default on the phone because it always works: no camera, no permission, no screen to point at.
+
+**`qrSvg` is the credential, not a picture about it**, and is held to every rule `code` is: returned once at issue, never persisted, never logged, absent from the audit summary. `test/openapi.e2e-spec.ts` now names it in the response-leak walk beside `code` and `password`, so it cannot later be added to a device view on the grounds that an image is harmless. **That gap was real before this change** — the old regex would not have caught `qrSvg` — and closing it was part of the work rather than an afterthought.
+
+**`ScannerSheet` gained a `mode`.** `product` listens for `ean13`/`upc_a`; `enrollment` listens for `qr`. Which symbologies are live is decided by the mode, never by what happens to be in frame — so a bottle's barcode cannot be submitted as an enrollment code, and a QR poster cannot be submitted as a product. Pointing the camera at the wrong thing does nothing, which is the correct behaviour. `expo-camera` already supported QR; only the type list excluded it, so there is **no new mobile dependency**.
+
+**Bidhaa** is a fourth destination off Home. Reading the catalogue needs no permission beyond being staff, so the tile is never absent — somebody granted nothing at all can still look up what a thing costs. The **add** button inside needs `SELL` or `RECEIVE_STOCK`, the same pair the backend's create route takes, and its absence is paired with a written explanation rather than a dimmed button. It reuses `NewProductSheet` rather than copying it, so the sale, the delivery, and the catalogue cannot drift into three different ideas of what a product is. **`requirePrice` is false there**: cataloguing is doc 01 §6's progressive enrichment, and only selling cannot invent a price.
+
+#### Files changed
+
+**Backend — new:** `src/domain/enrollment-qr.ts` + `.spec.ts` (8 tests).
+
+**Backend — edited:** `package.json` (+`qrcode`, +`@types/qrcode`), `src/modules/devices/devices.service.ts` (`IssuedEnrollmentView.qrSvg`), `src/modules/devices/dto/device-response.dto.ts`, `test/device-enrollment.e2e-spec.ts` (+4 QR tests), `test/openapi.e2e-spec.ts` (leak walk now covers `qrSvg`).
+
+**Web — new:** `src/components/enrollment-form.test.tsx` (5 tests).
+
+**Web — edited:** `src/lib/api/devices.ts`, `src/lib/action-state.ts`, `src/app/owner/actions.ts` (thread `qrSvg` through), `src/components/enrollment-form.tsx` (render it), `src/styles/globals.css` (`.shoprex-secret__qr`).
+
+**Mobile — new:** `src/features/products/ProductsScreen.tsx` + `.test.tsx` (11 tests).
+
+**Mobile — moved** (2026-08-25, on the owner's approval — see below): `src/features/sale/{ScannerSheet,NewProductSheet,UnitNameField}.tsx` and `UnitNameField.test.tsx` -> `src/components/`. Recorded by git as renames, so `--follow` still traces them.
+
+**Mobile — edited:** `src/components/ScannerSheet.tsx` (the `mode` prop), `src/features/enroll/EnrollScreen.tsx` (scan-or-type through one submit path), `src/features/home/HomeScreen.tsx` + `.test.tsx` (the Bidhaa tile, +3 tests), `src/app/App.tsx` (the `products` route and its back-button entry), plus the import lines in `SaleScreen.tsx`, `ReceiveScreen.tsx`, and `ProductsScreen.tsx`.
+
+**Docs:** `README.md` (enrollment route row, "Two ways in, one code", the mobile screens table, the Bidhaa note), `docs/v1/01_SHOPREX_V1_PRODUCT_CONCEPT.md` §4 and §5, `docs/v1/02_SHOPREX_V1_ENGINE_AND_MATH.md` §3.
+
+#### Tests and results
+
+| Surface | Before (§7 close) | After |
+|---|---|---|
+| Backend unit | 252 / 11 suites | **260 / 12 suites** |
+| Backend e2e | 489 / 17 suites | **493 / 17 suites** |
+| Web | 61 / 13 files | **66 / 14 files** |
+| Mobile | 205 / 12 suites | **219 / 13 suites** |
+| **Total** | **1,007** | **1,038** |
+
+Lint, typecheck, and build pass on backend and web; mobile typecheck and test pass.
+
+#### Manual testing
+
+##### Feature 1 — Enrolling a phone by scanning *(must pass)*
+
+**Setup:** backend on `:3001`, web on `:3000`, signed in as the seeded owner. A **new mobile build is required** before any of this can be tried — `barcodeTypes` is native scanner configuration, so a JavaScript reload will not pick it up: `cd mobile && npm run build:dev`.
+
+1. Go to **Simu**, choose a branch, name the phone, press **Tengeneza msimbo**. → The code appears as large text **and** as a QR on a white plate beneath it, with *write it down now, it is never shown again* in as many words.
+2. On the phone's enrolment screen, tap **Soma msimbo**. → Android asks for camera permission the first time. Allow it. → The viewfinder says *Soma msimbo wa usajili*, not the product-scanning copy.
+3. Point it at the QR on the laptop. → The code fills the box **and submits itself**; the phone lands on the sign-in screen for that branch.
+4. Issue another code and **type** it instead. → Identical outcome. → *Both paths submit the same string.*
+5. Point the enrolment scanner at an ordinary **product barcode**. → **Nothing happens.** → *A bottle is not an enrolment code; the mode decides what is listened for.*
+6. Point the **Mauzo** scanner at an enrollment QR. → **Nothing happens**, for the mirror reason.
+7. Reload the console page after issuing. → **The QR and the code are both gone.** → *Shoprex stores only the hash; this is not a bug.*
+8. Refuse the camera permission. → A warning banner explaining the code can still be typed, and a working way to do it — not a blank viewfinder.
+
+##### Feature 2 — Adding a product without an errand attached *(must pass)*
+
+1. On the phone's home screen, tap **Bidhaa**. → The catalogue, with a price for each packaging. A product nobody has priced says *Haijawekwa bei*, never `TSh 0`.
+2. Tap **Ongeza bidhaa mpya**. → The same sheet Mauzo uses, but **the price box is optional** — the note under the button says so.
+3. Add a product with no price. → It appears in the list as unpriced. Now try to sell it in **Mauzo**. → The backend refuses with *weka bei kwanza*. → *The honest outcome, not a hidden one.*
+4. Tap **Soma namba** and scan a barcode the shop already knows. → The list narrows to that product. Scan one it does not know. → The creation sheet opens with the barcode carried in.
+5. Sign in as a worker with **only `VIEW_STOCK`**. → **Bidhaa is still there** and readable. → Inside, there is **no add button**, and a banner naming the two permissions that would grant it.
+6. Sign in as somebody granted **nothing at all**. → Home shows the "nothing granted" banner *and* Bidhaa. → *Reading what a thing costs is not a permission the shop withholds.*
+7. Press Android's back button from Bidhaa. → Home, the same as every other screen.
+
+##### What has no automated coverage at all
+
+1. **A camera actually reading the QR off a screen.** The rendering is proven faithful by decoding it back to a 21×21 module matrix and comparing all 441 modules against the encoder's own output, and the decoded string was then redeemed against a live backend — but no physical phone has been pointed at a physical laptop. **This is the single most important thing to test by hand**, and it is where glare, angle, and screen brightness live.
+2. **`expo-camera` reading `qr` at all.** The mode switch is a prop change proven by typecheck and review; the native scanner is mocked in every test and has never run.
+3. **The QR at a real size on a real screen** — whether 220px is large enough for a cheap phone camera across a counter.
+4. **Bidhaa with a large catalogue.** It inherits the backend's 50-product cap without yet saying so — see known issues.
+
+#### Known issues / risks
+
+1. **Bidhaa inherits the 50-product cap silently.** `GET /products` caps `limit` at 50; the web products screen says so and this one does not, so a shop with a larger catalogue sees a list that stops without explanation. The fix is the properly-paged catalogue route §6 already identified.
+2. **`qrcode` brings 15 transitive packages.** They were reviewed as a count, not read. The 3 high-severity advisories `npm audit` reports are **pre-existing and unrelated** — `prisma` → `@prisma/config` → `deepmerge-ts` — and were deliberately left alone rather than fixed as an unrequested dependency change.
+3. **The QR is rendered with `dangerouslySetInnerHTML`.** Safe for one specific reason, written down at the call site: the markup is generated by our own backend from a code our own backend minted moments earlier, is never user input, and is never round-tripped. If any of that stops being true, this stops being safe.
+4. ~~**`ScannerSheet` still lives in `src/features/sale/`**~~ — **resolved 2026-08-25.** The owner approved the move, and `ScannerSheet`, `NewProductSheet`, and `UnitNameField` now live in `src/components/`, mirroring `web/src/components/`. This closes §5 known issue 1 and §6 blocked-question 3. See "The move" below.
+5. **Bidhaa searches on every keystroke**, with no debounce, so a fast typist spends a request per character against the 120/min default bucket. Fine for a pilot; the same rate-limit concern §6 raised for the console.
+
+#### The move (2026-08-25)
+
+**The owner approved it**, so §6's blocked question 3 — open since §5 — is closed. `ScannerSheet`, `NewProductSheet`, `UnitNameField`, and `UnitNameField.test.tsx` moved from `mobile/src/features/sale/` to **`mobile/src/components/`**.
+
+Why there: it mirrors `web/src/components/`, which already means exactly this in the sibling app, and it was the literal shape of the approved question ("into a shared folder") rather than a cleverer split. The alternative considered and rejected was scattering them — `NewProductSheet` and `UnitNameField` into `features/products/`, `ScannerSheet` somewhere else — which would have left `SaleScreen` and `ReceiveScreen` importing product-creation UI from another feature's folder, trading one misleading path for two.
+
+The mobile tree now reads: `src/features/<name>/` for what belongs to one feature, `src/components/` for composite pieces several features share, `src/app/ui.tsx` for the small building blocks those compose from, `src/domain/` for pure rules, `src/core/` for the API client and session store.
+
+**It changed no behaviour and no test.** 219/219 mobile tests passed before and after, unmodified; typecheck clean. Git recorded all four as renames (`R`), so `git log --follow` still traces their history. What did change is prose: `ScannerSheet` now carries a note saying why it sits where it does, and `NewProductSheet`'s doc comment no longer claims two callers when it has three.
+
+#### Blocked / awaiting user
+
+Nothing blocks Phase 8, and nothing is outstanding from this section. The questions carried from §6 (a shared barcode catalogue, a second large packaging per product, an admin-editable shop record, the pilot shop's identity, and the disk-cleanup confirmation) are all still open and still none of them block a phase — see §6 for the full table.
+
+#### Handoff notes
+
+- **`ScannerSheet`'s `mode` decides symbologies, not the frame.** If a third scanning use appears, add a mode rather than widening an existing one — the isolation between them is the feature, not an implementation detail.
+- **`src/components/` is now the home for anything several mobile features share.** Put a new cross-feature sheet there rather than in whichever feature happened to need it first — that is precisely the mistake this section had to undo.
+- **`qrSvg` is a credential.** It is in `openapi.e2e-spec.ts`'s leak walk by name. Do not add it to any response other than the single issue moment.
+- **Bidhaa passes `requirePrice={false}`.** That is deliberate, and it is the one thing separating cataloguing from selling in that shared sheet. Do not "fix" it to match Mauzo.
+- **The QR was verified by decoding, not by eyeballing.** A throwaway script parsed the SVG paths back into a module matrix and compared all 441 modules against `QRCode.create()`. If the rendering options ever change, redo that check rather than trusting that the output still looks like a QR code.
 
 ### §8 — Pilot hardening and launch
 *(empty until started)*
