@@ -18,7 +18,7 @@ If Part A and Part B ever disagree (e.g. the table says "Complete" but a section
 | 5 | React Native stock receiving and operational visibility | Complete | Yes — both halves of the clause driven by real tests: the backend over HTTP as a stock keeper, the phone through the screens, see §5 | 2026-08-23 |
 | 6 | Next.js owner and admin web app | Complete | Yes — every clause driven end to end over HTTP by all four roles, plus a live console smoke test, see §6 | 2026-08-23 |
 | 7 | Reports and PDF | Complete | Yes — every clause driven end to end over real HTTP, plus a live console and PDF-download check against a running backend and web server, see §7 | 2026-08-24 |
-| 8 | Pilot hardening and launch | In progress | Partly — every code deliverable is verified by real tests (see §8); **low-end Android testing and the pilot shop itself are outstanding** | 2026-08-25 |
+| 8 | Pilot hardening and launch | In progress | Partly — every code deliverable is verified by real tests (see §8); **low-end Android testing and the pilot shop itself are outstanding**. Distribution and over-the-air updates configured 2026-08-25, unproven against EAS, see §8a | 2026-08-25 |
 
 **Status values:** `Not started` / `In progress` / `Blocked` / `Complete`. Only mark `Complete` when the acceptance-check column says `Yes`, backed by a real test run referenced in that phase's section below.
 
@@ -33,6 +33,8 @@ Phase 8 found **three real defects** rather than merely confirming earlier work,
 Also fixed: `AuditAction.BRANCH_CREATED` had been declared since Phase 1 and written by nobody, and `test/e2e-env.js` never actually raised the e2e rate limits (dotenv had already set them, so its `??` never fired) — which is the intermittent-throttling bug §6 logged.
 
 **Exact next action:** the code deliverables are done and verified. What remains is not code — **walk §8's Manual testing on a real low-end Android phone**, which needs a new EAS build (`cd mobile && npm run build:dev`), and **select the pilot shop**. Phase 8 must not be marked `Complete` until both have happened: its acceptance check names a real shop, and "low-end Android testing" cannot be satisfied from a laptop.
+
+**Since 2026-08-25 the phone can also be given to somebody who is not a developer.** §8a added an installable pilot APK and over-the-air JavaScript updates: `expo-updates`, a channel per branch (`staging` for QA, `production` for the pilot), and a `pilot` build profile. **None of it has been run against EAS** — it is configuration verified only by typecheck and the suite, and §8a's *Manual testing* is what turns it into a fact. It also does not remove §8 blocker 3: an APK is only as installable as the server it points at, and **the backend is still hosted nowhere**, so every configured address remains `localhost` or a LAN IP. That is now the single thing between this repository and a working pilot.
 
 ---
 
@@ -207,6 +209,8 @@ Behaviour preserved exactly: a 503 from `/health/ready` is still treated as *rea
 | `production` | AAB | Play Store, much later |
 
 `buildType: "apk"` matters: the default AAB cannot be installed directly on a phone. Update channels are deliberately omitted because `expo-updates` is not installed — adding a `channel` without it fails the build. EAS Update is worth revisiting for Phase 8, when pushing JavaScript fixes to pilot shops without reinstalling becomes valuable.
+
+> **Superseded 2026-08-25 (Phase 8).** That revisit happened: `expo-updates` is installed, all three profiles now carry a `channel`, and a fourth profile `pilot` was added. **The three-profile table above is the Phase 1 state, not the current one** — see §8a for the current profiles, channels, and the environment each one reads.
 
 **Environment variables.** For a **development** build the JavaScript is served by local Metro, so `EXPO_PUBLIC_SHOPREX_API_BASE_URL` comes from `mobile/.env` at bundle time — changing it needs only `npm start --clear`, never a rebuild. For **preview/production** the bundle is built in the cloud and `.env` is not uploaded, so the value must be supplied with `eas env:create`. This keeps addresses out of the repository, per the owner's rule.
 
@@ -1801,7 +1805,7 @@ No `loading.tsx`, `error.tsx`, or `not-found.tsx` existed anywhere under `web/sr
 | QR enrollment expiry tests | 6 tests in `device-enrollment.e2e-spec.ts` |
 | Device revocation tests | Existing suite confirmed, plus `pilot-journey` §9 |
 | Device clock-skew handling | `pilot-journey` §7 |
-| Low-end Android testing | **Not done.** Needs a real phone and a new EAS build — see *Blocked* |
+| Low-end Android testing | **Not done.** Needs a real phone and a new EAS build — see *Blocked*. The build path it needs is now in place: see §8a |
 | Barcode failure handling | Mis-scan `400` vs unknown-code `404` proven on both surfaces |
 | Loading/error/empty states | The missing loading, error, and not-found boundaries added; 14 new web tests |
 | Audit review | `BRANCH_CREATED` gap found and closed |
@@ -1985,3 +1989,121 @@ Questions carried from §6 (a shared barcode catalogue, a second large packaging
 - **`AuditService.record` takes a transaction client.** `BranchesService.create` now uses it, like everything else that audits. An audit line for a record that was never created is worse than no line.
 - **The dev server on :3001 was stopped and not restarted.**
 
+
+### §8a — A shippable APK, and updates over the air (2026-08-25)
+
+**Status:** Configured and verified locally; **no cloud build or update has been published yet** — both need the owner's Expo account. **Date:** 2026-08-25.
+
+**The ask:** an APK that can be handed to somebody who is not a developer and works when they install it, and a way to push a JavaScript fix to that APK without asking a shopkeeper to sideload anything.
+
+#### What was missing
+
+Three separate gaps, only one of which was about Expo:
+
+1. **No over-the-air capability at all.** `expo-updates` was not installed, `app.json` had no `updates` block and no `runtimeVersion`, and no profile carried a `channel` — the deliberate Phase 1 omission recorded in §1b, which that section flagged as worth revisiting *at Phase 8*. This is that revisit.
+2. **No API address for cloud builds.** `EXPO_PUBLIC_SHOPREX_API_BASE_URL` is inlined by Metro at bundle time and `mobile/.env` is never uploaded, so a `preview` build would have shipped with an empty base URL and died at startup on `MissingApiBaseUrlError`. Correct behaviour by design, but not a distributable app.
+3. **No installable release profile.** `production` builds an app bundle, which Android cannot sideload.
+
+#### The profile and channel model
+
+Chosen by the owner: the pilot shop sits on `production`, developers and QA on `staging`. A bad merge therefore reaches a developer's pocket, not a shop's till.
+
+| Git branch | Channel | Profile | Output | Who holds it |
+|---|---|---|---|---|
+| `allord-dev` / `yosia-dev` | — | `development` | APK, dev client | Metro over Wi-Fi; no updates needed |
+| `staging` | `staging` | `preview` | Standalone APK, internal | Developers and QA |
+| `production` | `production` | `pilot` | Standalone APK, internal | The pilot shop |
+| `production` | `production` | `production` | AAB | Play Store, still much later |
+
+`pilot` `extends` `preview` and only overrides the channel and environment, so the sideloadable APK reaches the `production` channel without disturbing the AAB profile that §1b reserved for a Play submission.
+
+#### Two facts that shaped every decision
+
+- **`eas update` publishes the working tree, not a git branch.** EAS Update has its own "branches", unrelated to git's despite the shared word. Publishing to the EAS branch `staging` uploads whatever JavaScript is on disk. So the workflow is merge → run the suite → **check the branch out** → publish. The git branch is what gets verified; the checkout is what makes the publish match it. This is the single most misreadable part of the whole mechanism and it is written down in both READMEs.
+- **`EXPO_PUBLIC_*` is inlined, so an update carries the API address with it.** Publishing from a laptop whose `.env` holds a LAN IP would silently repoint every pilot phone at that laptop. The `update:*` scripts pin `--environment` for exactly this reason; a bare `eas update` must never be run.
+
+#### Why `runtimeVersion` uses the fingerprint policy
+
+`runtimeVersion` is what stops an update reaching a binary that cannot run it. The `fingerprint` policy hashes the native project, so adding a native module automatically makes older binaries ineligible. The alternative, `appVersion`, works only if a human remembers to bump `version` on every native change — and §7a is a recorded instance of exactly that being forgotten, where a `barcodeTypes` change silently required a rebuild that nobody had flagged. Automatic beats remembered when the consequence lands on a till.
+
+The consequence is worth stating plainly: **a native change fails safe rather than loudly.** Old phones stop being offered updates instead of downloading one that crashes on a module that is not there. If a publish appears to reach nobody, a changed fingerprint is the first thing to check.
+
+#### `versionCode`, which had never been set
+
+`eas.json` sets `appVersionSource: "local"` and `app.json` carried no `android.versionCode`, so every APK ever built would have been version 1. Android refuses to install a build over one it considers newer, and identical version codes make "which build is on this phone?" unanswerable. It is now `1` explicitly and must be bumped by hand for each APK handed out. Updates do not use it.
+
+#### `mobile/android/` was deleted
+
+It was untracked build output left over from before the Duka→Shoprex rename: `build.gradle` still declared `applicationId 'tz.duka.dukamobile'` against `app.json`'s `tz.shoprex.shoprexmobile`, so any local `npm run android` would have built the wrong package. Under the fingerprint policy it was worse than merely stale — `@expo/fingerprint` hashes that directory, so a local `eas update` would have computed a different runtime version than EAS Build does, and updates would have silently stopped being served. Regenerable at any time with `npm run prebuild`; EAS was never affected, since it prebuilds fresh in the cloud.
+
+#### Files changed
+
+**`mobile/` — edited:**
+- `package.json` — `expo-updates ~57.0.17`; `build:pilot`, `update:staging`, `update:production` scripts
+- `app.json` — `runtimeVersion` (fingerprint), `updates.url`, `android.versionCode`
+- `eas.json` — `channel` on every profile, `environment` on the standalone ones, new `pilot` profile
+- `README.md` — a *Distribution and updates* section: channel table, the after-a-merge decision table, the working-tree caveat, the environment-variable placement
+
+**Repository docs — edited:** `README.md` (§4), `.env.example` (`[MOBILE]`), `PROGRESS.md` (§1b superseded, this section).
+
+**No application code was touched.** `expo-updates` needs no import, provider, or screen, so the mobile suite is unchanged at **226 passing**, and `npm run typecheck` is clean.
+
+#### Manual testing
+
+**Feature 1 — Handing somebody a working APK** *(must pass)*
+
+1. In the EAS dashboard, open `shoprex-mobile` → **Environment variables**. Create `EXPO_PUBLIC_SHOPREX_API_BASE_URL` in environment **`production`**, visibility **Plain text**, value the live `https://…/api/v1`. → It appears in the list against `production`.
+2. Repeat for environment **`preview`** with the staging address. → Two entries, same name, different environments.
+3. `cd mobile && npx eas-cli env:list --environment production`. → Prints the name and value you just set. If the name is misspelled the app cannot find it, and this is the cheapest place to notice.
+4. `npm run build:pilot`. → A cloud build starts and ends with a link and a QR code. First run will ask to generate an Android keystore — **yes**, and EAS keeps it.
+5. Open the link on the phone and install. → Android asks permission to install from this source. Allow it.
+6. Open Shoprex. → The **enrol** screen, not a crash and not `MissingApiBaseUrlError`. A crash here means step 1 or 3 is wrong.
+7. Enrol with a code from the owner console, sign in, sell one item by scanning it. → The item lands in the cart at its price. **This is the first time `expo-camera` has run for real** — it is mocked in all 226 tests.
+
+**Feature 2 — A fix reaching a phone without a reinstall** *(must pass)*
+
+1. Change something visible on a screen — a label is enough. Do not touch a native dependency.
+2. `npm run update:production`. → The command names branch `production` and prints an update id.
+3. `npx eas-cli channel:view production`. → Shows that channel pointing at the update just published.
+4. Force-close the app on the phone, open it. → Looks unchanged; the download happens in the background.
+5. Close and open it again. → **The change is there, with no reinstall.** Updates apply on the *next* launch, so one restart of lag is correct behaviour, not a fault — a bundle never swaps under a half-finished sale.
+
+**Feature 3 — A native change is refused, not crashed** *(worth a look)*
+
+1. Add any native dependency and `npm run update:production` without building. → Either the CLI warns about the fingerprint, or the phone never picks the update up.
+2. Open the app on the phone. → **It still works, on the old bundle.** Being ignored is the correct outcome; a phone that downloaded this would crash on a module that is not in its binary.
+
+**No automated coverage at all:** every one of the above. Builds, channels, updates, and the fingerprint gate are cloud behaviour that no test in this repository can reach, and `expo-camera` remains mocked. Feature 2 is the one to run first — it is the whole reason this section exists, and until it has been walked once, "we can push a fix to the shop" is a claim rather than a fact.
+
+#### Decisions made
+
+| Question | Answer |
+|---|---|
+| EAS Update, or Play internal testing, or APK by hand? | **EAS Build + EAS Update.** Play internal testing needs an AAB, a paid account, and testers with Play accounts invited by email — wrong shape for "send somebody an APK", though right later. Handing out APKs by hand makes every JavaScript fix a sideload walkthrough over a metered connection, which is the specific thing a pilot shop should never be asked to do |
+| Which channel does the pilot sit on? | **`production`.** Developers and QA carry `staging` and see a merge as soon as it is green; the shop sees only what somebody deliberately released |
+| Should a merge publish automatically? | **No.** No CI exists, and during a pilot a human should decide when a shop's till changes. `eas update` is a command somebody runs |
+| A third non-personal branch (`development`)? | **No — four branches stand.** The gate it would add already exists: nothing publishes on merge, so a broken integration on `staging` reaches no phone until somebody publishes. With two developers `development` and `staging` would be identical almost always. **Revisit when QA is a person who is not Allord or Yosia** — at that point it touches `AGENT.md` and `CLAUDE.md` and nothing in `eas.json`, since it would carry no channel |
+| Where does the API address live for cloud builds? | **EAS environment variables**, `preview` and `production`, set by the owner in the dashboard. Plaintext, not secret: `EXPO_PUBLIC_*` is inlined into the bundle and readable by anyone holding the APK, so marking it secret hides it from the team and from nobody else |
+
+#### Known issues / risks
+
+1. **Nothing here has been run against EAS.** Every change is configuration verified locally by typecheck and the suite. Whether the `pilot` profile builds, whether the channel wiring is right, and whether an update actually lands are all unproven until somebody with the Expo account runs *Manual testing* above. This is the same limit §1b recorded, and it has not moved.
+2. **The address must be `https://`.** A release APK on Android 9+ refuses cleartext HTTP, so the LAN `http://` addresses that work all through development will fail on a pilot phone. The failure will look like a network error, not a configuration error.
+3. **The 8-hour JWT has no refresh token.** A pilot phone signs its worker out roughly once a shift and returns silently to sign-in. Untouched here because it is a backend decision, but it is a real "does it just work" issue for a shop and belongs in the pilot feedback log if it bites.
+4. **No in-app sign that an update is coming.** `expo-updates` handles the download natively with no UI. A seller sees a change appear after a restart with no explanation. Deliberate — adding an affordance was not asked for — but worth revisiting if the shop finds it confusing.
+5. **Distribution still depends on one Expo account.** `npx eas-cli login` is interactive and tied to `kakaallord`, so only the owner can build or publish. Unchanged from §1b, and now it gates fixes reaching a shop rather than just builds reaching a developer.
+
+#### Blocked / awaiting user
+
+| # | Blocker | Why it matters |
+|---|---|---|
+| 1 | **The backend must be deployed somewhere public, over HTTPS, before any of this is useful.** No hosting exists — `docker-compose.yml` runs PostgreSQL only, there is no Dockerfile and no CI, and every configured address is `localhost` or a LAN IP | An APK is only as installable as the server it points at. This is the same unanswered question as §8 blocker 3 ("where will the pilot be hosted") seen from the phone's side, and it is now the single thing standing between this configuration and a working pilot |
+| 2 | **The owner must set the two EAS environment variables and run the first `pilot` build** | Both need the Expo account. Steps are Feature 1 above |
+
+#### Handoff notes
+
+- **`expo-updates` cannot be added to an APK that is already in somebody's hands.** It is a native module and has to be in the binary. That is why it went in *before* the pilot APK ships — if a phone is given a build without it, over-the-air updates for that phone are impossible until it is reinstalled by hand.
+- **Never run a bare `eas update`.** It re-inlines `EXPO_PUBLIC_SHOPREX_API_BASE_URL` from whatever environment the command resolves, and a laptop's LAN address published to the pilot channel would take a shop offline with no obvious cause. The npm scripts exist so nobody has to remember the flag.
+- **Channels do not cross.** A development build never receives a `staging` update, so it cannot rehearse what QA is about to get — it tests the code but never the delivery. Somebody should carry a `preview` APK alongside their dev client.
+- **`mobile/android/` no longer exists and should not be restored by hand.** `npm run prebuild` regenerates it correctly from `app.json`; the deleted copy carried the pre-rename package id and would have poisoned the fingerprint.
+- **Bump `android.versionCode` before each APK handed out.** Nothing enforces it, and forgetting produces two different builds both claiming to be version 1.

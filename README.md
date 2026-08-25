@@ -582,11 +582,42 @@ only `npm start --clear`. If the value is missing the app fails loudly at
 startup. The phone needs to reach the PC, so allow ports **3001** and **8081**
 through the firewall; the backend already listens on `0.0.0.0`.
 
+Standalone builds bundle in the cloud and do not see `mobile/.env`. They read the
+same variable from an **EAS environment** instead — `preview` for the staging
+address, `production` for the live one — set in the EAS dashboard or with
+`npx eas-cli env:create`. It must be `https://`: a release APK on Android 9+
+refuses cleartext HTTP.
+
+### Distributing and updating the app
+
+Phones are given an APK built on EAS and are then kept current **over the air**,
+so a fix never requires a reinstall. Builds carry a *channel*, and only receive
+updates published to it.
+
+| Git branch | Channel | Profile | Who holds it |
+|---|---|---|---|
+| `staging` | `staging` | `preview` | Developers and QA |
+| `production` | `production` | `pilot` | The pilot shop |
+
+Merge into `staging`, run the suite, check the branch out and `npm run
+update:staging`; once QA is happy, merge to `production` and `npm run
+update:production`. Merging publishes nothing on its own — `eas update` uploads
+the **working tree**, so the checkout is what makes a publish match the branch you
+verified. Over-the-air updates carry JavaScript and assets only; a native change
+still needs a new APK, and `runtimeVersion`'s fingerprint policy makes that fail
+safe by not offering the update to binaries that cannot run it.
+
+Full detail, including the after-a-merge decision table: `mobile/README.md`.
+
 | Command | Purpose |
 |---|---|
 | `npm test` | Jest unit and component tests |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run build:dev` | EAS build of the development client |
+| `npm run build:preview` | EAS build of the QA APK (`staging` channel) |
+| `npm run build:pilot` | EAS build of the pilot shop's APK (`production` channel) |
+| `npm run update:staging` | Publish a JavaScript update to QA |
+| `npm run update:production` | Publish a JavaScript update to the pilot shop |
 | `npm run android` | Local native build — needs a JDK and the Android SDK |
 
 ### What the app does

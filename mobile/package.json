@@ -14,7 +14,10 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "build:dev": "npx eas-cli build --profile development --platform android",
-    "build:preview": "npx eas-cli build --profile preview --platform android"
+    "build:preview": "npx eas-cli build --profile preview --platform android",
+    "build:pilot": "npx eas-cli build --profile pilot --platform android",
+    "update:staging": "npx eas-cli update --branch staging --environment preview",
+    "update:production": "npx eas-cli update --branch production --environment production"
   },
   "dependencies": {
     "expo": "~57.0.15",
@@ -22,6 +25,7 @@
     "expo-dev-client": "~57.0.14",
     "expo-secure-store": "~57.0.1",
     "expo-status-bar": "~57.0.1",
+    "expo-updates": "~57.0.17",
     "react": "19.2.3",
     "react-native": "0.86.2"
   },

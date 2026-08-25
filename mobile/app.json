@@ -6,6 +6,12 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/060936bf-2d71-4100-8056-027235f433ca"
+    },
     "plugins": [
       "expo-dev-client",
       "expo-secure-store",
@@ -24,6 +30,7 @@
     },
     "android": {
       "package": "tz.shoprex.shoprexmobile",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#059669",
         "foregroundImage": "./assets/android-icon-foreground.png",
