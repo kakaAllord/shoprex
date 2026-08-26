@@ -90,6 +90,9 @@ npm run start:dev
 | `npm run test:e2e` | Jest HTTP tests against a real database (`test/**/*.e2e-spec.ts`) |
 | `npm run prisma:deploy` | Apply existing migrations |
 | `npm run prisma:seed` | Create/refresh the development accounts |
+| `npm run backup` | `pg_dump` the configured database into `backend/backups/` |
+| `npm run backup:verify` | Back up, restore into a scratch database, and compare every table's row count. The recovery test |
+| `npm run backup:restore -- --file <dump> --url <target>` | Restore a dump. Refuses to overwrite the live database without `--force` |
 
 `npm run prisma:migrate` (`prisma migrate dev`) is interactive and cannot run in
 a non-interactive shell. To add a migration there, either run it in a real
@@ -129,7 +132,7 @@ proving a branch from another tenant answers `404` rather than becoming an
 assignment. Adding a DTO to that list without such a test is exactly what the
 pinning exists to make visible.
 
-### API surface (Phases 1–6)
+### API surface (Phases 1–8)
 
 | Endpoint | Auth | Purpose |
 |---|---|---|
@@ -154,7 +157,7 @@ pinning exists to make visible.
 | `GET /api/v1/users` | owner/manager | Owners see all staff; managers see only their branches' staff |
 | `GET /api/v1/users/:id` | owner/manager | Another tenant's staff member answers `404`, never `403` |
 | `PATCH /api/v1/users/:id/permissions` | owner | Replace a person's permission set outright |
-| `POST /api/v1/devices/enrollments` | owner | Issue a one-time enrollment code binding a phone to a **branch**; returned **once** |
+| `POST /api/v1/devices/enrollments` | owner | Issue a one-time enrollment code binding a phone to a **branch**; returned **once**, with a scannable QR of the same code |
 | `POST /api/v1/devices/enroll` | public | A phone redeems its code; the backend mints `device_id` and binds it to the branch |
 | `GET /api/v1/devices` | owner/manager | Owners see all devices; managers see only their branches' |
 | `GET /api/v1/devices/:id` | owner/manager | Another tenant's device answers `404`, never `403` |
@@ -169,15 +172,18 @@ pinning exists to make visible.
 | `PATCH /api/v1/products/:id` | owner | Rename or discontinue. Discontinued is not deleted: it cannot be sold or received, and its history and stock stay |
 | `PATCH /api/v1/products/:id/units/:unitId` | owner | Set a price. Never rewrites a completed sale — every line snapshotted its own |
 | `POST /api/v1/products/:id/barcodes` | owner | Attach a barcode to a product that was typed in without one |
-| `POST /api/v1/branches/:branchId/stock-receipts` | RECEIVE_STOCK | Record a delivery into that branch, all-or-nothing |
+| `POST /api/v1/branches/:branchId/stock-receipts` | RECEIVE_STOCK | Record a delivery into that branch, all-or-nothing. Takes an optional `idempotencyKey`, so a retried delivery returns the first receipt instead of receiving the crate twice |
 | `GET /api/v1/branches/:branchId/stock` | VIEW_STOCK | What the branch holds, physical packages plus normalized |
 | `GET /api/v1/branches/:branchId/stock/:productId` | VIEW_STOCK | One product, answering `0` rather than `404` when there is none |
 | `GET /api/v1/payment-methods` | any staff | The checkout buttons: this shop's **active** payment methods. `?includeInactive=true` is owners only |
 | `POST /api/v1/payment-methods` | owner | Add a way of being paid. `kind` is fixed at creation |
 | `PATCH /api/v1/payment-methods/:id` | owner | Rename, reorder, or switch off. There is deliberately no delete |
 | `POST /api/v1/branches/:branchId/sales` | SELL | Complete a sale — one atomic, idempotent command |
-| `GET /api/v1/branches/:branchId/sales` | VIEW_REPORTS | The owner's sales list, newest first, keyset-paged |
+| `GET /api/v1/branches/:branchId/sales` | VIEW_REPORTS | The owner's sales list, newest first, keyset-paged. Optional `?date=` narrows it to one shop-local day, resolved the same way the report below is |
 | `GET /api/v1/branches/:branchId/sales/:id` | any staff | One sale, as a receipt |
+| `GET /api/v1/branches/:branchId/reports/daily` | VIEW_REPORTS | The day, read back: totals, payment breakdown, debts, sellers, best sellers, stock received, and the transactions themselves. `?date=` selects a shop-local day; omit it for today |
+| `GET /api/v1/branches/:branchId/reports/daily.pdf` | VIEW_REPORTS | The very same report, as a downloadable PDF — rendered from that response, never recomputed |
+| `GET /api/v1/reports/branches` | VIEW_REPORTS | One day across every branch the caller may see, for comparison |
 
 Every error uses one envelope, shared by both clients:
 
@@ -206,9 +212,25 @@ when the module is built — see `rate-limit.e2e-spec.ts` for the pattern.
 **Workers and devices.** A worker is created with a name, a password, and one
 branch — deliberately no email, because workers never use the web console. The
 owner issues a **one-time enrollment code** for a **branch**, naming the phone
-so they can tell their handsets apart. Someone types it into the Android app
-once, and the backend mints the `device_id` and binds that install to one
-business and one branch.
+so they can tell their handsets apart. Someone gets it into the Android app
+once — by scanning or by typing — and the backend mints the `device_id` and
+binds that install to one business and one branch.
+
+**Two ways in, one code.** Issuing an enrollment returns the code *and* a
+`qrSvg`: the same code drawn as a scannable QR. Somebody standing at the
+owner's laptop taps **Soma msimbo** and points the phone at the screen;
+somebody reading it down the line types it. The QR carries the **bare code and
+nothing else** — no URL, no JSON, no server address — so both paths hand
+`POST /devices/enroll` an identical string and the backend cannot tell which
+was used. One redemption path, one set of rules, one thing to test. Typing
+stays the default on the phone because it always works: no camera, no
+permission, no screen to point at.
+
+`qrSvg` **is the credential**, not a picture about it, so it lives under
+exactly the same rules as `code`: returned once at issue, never stored, never
+logged, never in an audit summary. `test/openapi.e2e-spec.ts` holds it to that
+rule by name, so it cannot later be added to a device view on the grounds that
+it "is only an image".
 
 **A phone belongs to a branch, not to a person** (changed 2026-08-23). Anyone
 assigned to that branch signs in on it: the app shows the people who work there
@@ -321,6 +343,23 @@ race each other, which a unique index catches. That is deliberate: a network
 that drops the response is the normal case on a Tanzanian phone, not the
 exception.
 
+**A delivery carries one too**, as of Phase 8: `POST /branches/:id/stock-receipts`
+takes an optional `idempotencyKey` under exactly the same rule. It is nullable
+where a sale's is required, because the column arrived after the route did and
+PostgreSQL treats NULLs as distinct in a unique index — a client that sends no
+key behaves as it always did and never collides with another. The phone always
+sends one.
+
+**And the phone actually uses both**, which until Phase 8 it did not. `Mauzo`
+minted a fresh key inside the submit handler on every attempt, so the backend's
+guarantee was real and unreachable: a lost response meant the seller pressed
+**Lipa** again and a second sale was rung up, stock and all. The key is now
+minted once per cart, reused by every retry, and discarded only on success — or
+when the cart is **edited**, because a changed cart is a different sale and
+answering it with the first receipt would silently drop the line the seller just
+added. `Pokea mzigo` does the same with the basket. Both say so on the failure:
+*bonyeza tena — hakitauzwa mara mbili*.
+
 Each line **snapshots** the product name, unit name, price, conversion factor,
 and normalized quantity. Repricing Coke tomorrow does not change what a
 customer paid today, and a receipt read back next month says what it said. The
@@ -348,6 +387,69 @@ no collection workflow. One debt per sale, because a bill is owed by one person.
 spelling — `0712345678`, `+255712345678`, `255 712 345 678` — and it is stored
 in one canonical form, `+255712345678`. The rule lives in
 [backend/src/domain/phone.ts](backend/src/domain/phone.ts) with its own tests.
+
+**Daily reports.** A day is the shop's own, never the server's and never a
+client's. `Business.timezone` (`Africa/Dar_es_Salaam` by default) and the
+backend clock are turned into a UTC instant range by one pure function,
+[backend/src/domain/day-window.ts](backend/src/domain/day-window.ts) — everything
+that needs a day boundary calls it, so the sales list's `?date=` filter and the
+report cannot come to disagree about where one day ends and the next begins. A
+sale is never asked when it happened; only `createdAt`, the server clock's own
+stamp, decides which day it falls in.
+
+The figures themselves — totals, the payment-method breakdown, debts by name,
+who sold what, what arrived, and the best sellers — are pure arithmetic over
+snapshotted values in
+[backend/src/domain/report.ts](backend/src/domain/report.ts): a report reads
+`SaleLine.productName`, `SalePayment.methodName`, and the like, the values a
+sale or a receipt stored at the moment it happened, and never joins back to the
+live product, unit, or payment-method row. A renamed payment method does not
+split a past day's takings into two rows, and a report of last month reads with
+last month's prices.
+
+The downloadable PDF is generated by a small hand-written writer,
+[backend/src/domain/pdf.ts](backend/src/domain/pdf.ts) — no dependency, no
+embedded font, just the fourteen base fonts every PDF reader already has — and
+it is composed in
+[backend/src/modules/reports/daily-report.pdf.ts](backend/src/modules/reports/daily-report.pdf.ts)
+from **the very same response object** the dashboard is given. Nothing in that
+file computes a total; it only lays one out. That is what makes "the dashboard
+and the PDF agree" true by construction rather than by two implementations
+staying in sync by luck — and it is also how `test/reports.e2e-spec.ts` proves
+it: the PDF's text stream is deliberately uncompressed, so the test reads the
+numbers back out of the generated bytes and compares them to the JSON.
+
+### Backups and recovery
+
+```bash
+cd backend
+npm run backup           # → backend/backups/shoprex-<db>-<timestamp>.dump
+npm run backup:verify    # the recovery test — see below
+```
+
+`scripts/backup.js` wraps `pg_dump`/`pg_restore` in PostgreSQL's custom format
+(`-Fc`, `--no-owner --no-privileges`), so a dump taken as `postgres` locally
+restores as whatever role a pilot host uses. The password is passed as
+`PGPASSWORD` rather than on the command line, where it would sit in shell
+history and in `ps` output.
+
+**`backup:verify` is the Phase 8 deliverable, and it is the only one that
+matters.** A backup nobody has restored is a file. It counts the rows in every
+tenant-bearing table, takes a real backup, creates a scratch database beside the
+live one, restores into it, counts again, prints both columns side by side, and
+fails if any pair disagrees. It never writes to the database it read from, and
+it drops the scratch database afterwards unless given `--keep`.
+
+`backup:restore` refuses to overwrite the database `DATABASE_URL` points at
+unless given `--force`; the ordinary path is `--url` to somewhere else.
+
+Dumps are git-ignored (`backend/backups/`, `*.dump`). A dump is a complete copy
+of a shop's trading — every price, every debtor's name, every password hash —
+and is the single worst file in this repository to commit by accident.
+
+**Scheduling, offsite copies, encryption, and retention are deliberately not
+here.** Those are decisions about where a pilot is hosted, which the owner has
+not made — see `PROGRESS.md` §8. This is the mechanism and the proof it works.
 
 ### Development accounts
 
@@ -385,6 +487,10 @@ touched. Point them elsewhere with `TEST_DATABASE_URL` if you prefer.
 | `test/sales-isolation.e2e-spec.ts` | Tenant and branch isolation for sales, sale lines, payments, and payment methods |
 | `test/stock-receiving.e2e-spec.ts` | Phase 5's acceptance check as a stock keeper on an enrolled phone: receive a known product, add and receive an unknown one, all-or-nothing deliveries, and every refusal — no permission, wrong branch, revoked phone |
 | `test/web-console.e2e-spec.ts` | Phase 6's acceptance check as all four roles: a platform administrator onboarding, suspending, and restoring a shop; an owner reaching only their own; a manager scoped to assigned branches and refused every owner-only write; product management, payment settings, and the paged sales list |
+| `test/reports.e2e-spec.ts` | Phase 7's acceptance check: a sale one millisecond either side of the shop-local day boundary lands in the correct day; the dashboard and the generated PDF are read back and compared number for number; branch selection and the branch comparison |
+| `test/reports-isolation.e2e-spec.ts` | Tenant and branch isolation for reports — no new table, but a read across every table a shop owns, so this checks that nothing from another business or an unassigned branch reaches a total, a row, or the PDF |
+| `test/pilot-journey.e2e-spec.ts` | Phase 8's acceptance check as one shop's first day, from an empty database: sign up, open a branch, take on staff, enrol a phone, receive, sell, read the day back — then a wrong device clock and a dropped network, proving nothing is recorded twice |
+| `test/isolation-pass.e2e-spec.ts` | Phase 8's **cumulative** pass. Sweeps every tenant-scoped route from another shop's token and from an unassigned branch in one table, and reads the Prisma datamodel to fail when a model carrying a `businessId` is not named in its coverage map — so a table added in a later phase cannot arrive without isolation |
 
 ## 3. Web (`web/`) — http://localhost:3000
 
@@ -408,7 +514,8 @@ npm run dev
 | `/signup` | Owner self-registration — shop name, email, phone, password |
 | `/login` | Email and password sign-in, prefilled in development |
 | `/admin` | Platform administrator: every shop, onboarding, suspend and restore |
-| `/owner` | Overview: counts and doors. Deliberately no money — that is Phase 7 |
+| `/owner` | Overview: counts and doors. Deliberately no money — see `/owner/reports` |
+| `/owner/reports` | The day, read back: totals, payment breakdown, debts, sellers, best sellers, stock received, branch comparison, and a PDF download. Needs `VIEW_REPORTS` |
 | `/owner/sales` | Sales list for a branch, newest first, keyset-paged. Needs `VIEW_REPORTS` |
 | `/owner/sales/[branchId]/[saleId]` | One sale, as the customer was shown it |
 | `/owner/stock` | What a branch holds, in packages. Negatives shown and counted |
@@ -475,32 +582,85 @@ only `npm start --clear`. If the value is missing the app fails loudly at
 startup. The phone needs to reach the PC, so allow ports **3001** and **8081**
 through the firewall; the backend already listens on `0.0.0.0`.
 
+Standalone builds bundle in the cloud and do not see `mobile/.env`. They read the
+same variable from an **EAS environment** instead — `preview` for the staging
+address, `production` for the live one — set in the EAS dashboard or with
+`npx eas-cli env:create`. It must be `https://`: a release APK on Android 9+
+refuses cleartext HTTP.
+
+### Distributing and updating the app
+
+Phones are given an APK built on EAS and are then kept current **over the air**,
+so a fix never requires a reinstall. Builds carry a *channel*, and only receive
+updates published to it.
+
+| Git branch | Channel | Profile | Who holds it |
+|---|---|---|---|
+| `staging` | `staging` | `preview` | Developers and QA |
+| `production` | `production` | `pilot` | The pilot shop |
+
+Merge into `staging`, run the suite, check the branch out and `npm run
+update:staging`; once QA is happy, merge to `production` and `npm run
+update:production`. Merging publishes nothing on its own — `eas update` uploads
+the **working tree**, so the checkout is what makes a publish match the branch you
+verified. Over-the-air updates carry JavaScript and assets only; a native change
+still needs a new APK, and `runtimeVersion`'s fingerprint policy makes that fail
+safe by not offering the update to binaries that cannot run it.
+
+Full detail, including the after-a-merge decision table: `mobile/README.md`.
+
 | Command | Purpose |
 |---|---|
 | `npm test` | Jest unit and component tests |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run build:dev` | EAS build of the development client |
+| `npm run build:preview` | EAS build of the QA APK (`staging` channel) |
+| `npm run build:pilot` | EAS build of the pilot shop's APK (`production` channel) |
+| `npm run update:staging` | Publish a JavaScript update to QA |
+| `npm run update:production` | Publish a JavaScript update to the pilot shop |
 | `npm run android` | Local native build — needs a JDK and the Android SDK |
 
 ### What the app does
 
-Enrol → sign in → home, and from home to **Mauzo**, **Pokea mzigo**, or
-**Stoo** — each returning home and nowhere else.
+Enrol → sign in → home, and from home to **Mauzo**, **Pokea mzigo**, **Stoo**,
+or **Bidhaa** — each returning home and nowhere else.
 
 | Screen | What it is for |
 |---|---|
-| Enrol | The one-time code the owner handed over. The backend mints the `device_id`; the phone never chooses one |
+| Enrol | The one-time code the owner handed over — **scanned from their screen or typed**, both submitting the identical string. The backend mints the `device_id`; the phone never chooses one |
 | Sign in | The worker's own password on the phone enrolled to their branch. No email, and no code after the first time |
 | Home | Built from the permissions the backend returned. Anything not granted is explained in words, never shown as a dimmed button |
 | Mauzo | Scan or type, adjust, pay. One sellable unit adds itself at quantity 1; a rescan increments that line; several units ask which |
 | Receipt | The commercial units actually sold, the change, and any debt. Shareable through the phone's own share sheet — **printing is not a V1 feature**, see `docs/v1/01` §8 |
 | Pokea mzigo | Needs `RECEIVE_STOCK`. The same scan/type/add-inline three ways in, then how many arrived and optionally what one cost. The whole delivery is one request, because the backend records it as one transaction |
 | Stoo | Needs `VIEW_STOCK`. What the branch holds, in packages — `5 Carton + 5 Piece`. A negative balance is shown and named as something to recount, never hidden |
+| Bidhaa | The catalogue, and the one place adding to it is the point rather than a rescue. Reading needs no permission beyond being staff; the **add** button needs `SELL` or `RECEIVE_STOCK`. A price is **not** required here — cataloguing is not selling |
 
 Navigation is a small `Route` union in `src/app/App.tsx` rather than a router:
-the app is one path with three destinations off home, and four native
+the app is one path with four destinations off home, and four native
 navigation dependencies would buy nothing. Android's hardware back button is
 wired to the same state.
+
+**Adding a product no longer needs an errand.** It was always possible on the
+phone — doc 01 §5 requires it mid-sale — but only ever as a rescue from a
+different task: scan something unknown, or search a name and find nothing.
+**Bidhaa** makes the same `NewProductSheet` reachable directly, which is what
+somebody unpacking six new lines actually needs. The sheet is shared rather
+than copied, so the sale, the delivery, and the catalogue cannot drift into
+three different ideas of what a product is.
+
+**Where mobile code lives.** `src/features/<name>/` holds what belongs to one
+feature and nothing else. `src/components/` holds the composite pieces several
+features share — `ScannerSheet`, `NewProductSheet`, `UnitNameField` — and
+mirrors `web/src/components/`. `src/app/ui.tsx` holds the small building
+blocks those are composed from (buttons, cards, fields), `src/domain/` the pure
+rules, and `src/core/` the API client and session store.
+
+The three shared sheets sat in `src/features/sale/` until 2026-08-25, because
+selling was once the only thing that scanned or created a product. Four
+features now use `ScannerSheet` and three use `NewProductSheet`, so the path
+was telling most of its callers something untrue; moving them changed no
+behaviour and no test.
 
 The rules that decide what a scan *means* live in
 [mobile/src/domain/cart.ts](mobile/src/domain/cart.ts),

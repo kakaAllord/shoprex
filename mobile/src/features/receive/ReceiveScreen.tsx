@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { colors, radius, spacing } from '../../app/theme';
 import {
@@ -27,8 +27,9 @@ import {
   setLineCost,
   toReceiptLines,
 } from '../../domain/receiving';
-import { NewProductSheet } from '../sale/NewProductSheet';
-import { ScannerSheet } from '../sale/ScannerSheet';
+import { newIdempotencyKey } from '../../core/session/sessionStore';
+import { NewProductSheet } from '../../components/NewProductSheet';
+import { ScannerSheet } from '../../components/ScannerSheet';
 
 /**
  * Pokea mzigo — putting a delivery on the shelf.
@@ -52,12 +53,14 @@ import { ScannerSheet } from '../sale/ScannerSheet';
 export function ReceiveScreen({
   apiClient,
   branchId,
+  deviceId,
   onBack,
   onOpenStock,
   onSessionOver,
 }: {
   apiClient: ApiClient;
   branchId: string;
+  deviceId: string | null;
   onBack: () => void;
   onOpenStock: (() => void) | null;
   onSessionOver: (message: string) => void;
@@ -78,6 +81,23 @@ export function ReceiveScreen({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState<StockReceipt | null>(null);
+
+  const receiptCounter = useRef(0);
+
+  /**
+   * The idempotency key for the delivery currently being saved.
+   *
+   * Minted once and **reused by every retry**, for exactly the reason Mauzo
+   * does the same (see `SaleScreen`): the backend commits the delivery and the
+   * response is lost, and a stock keeper who presses Hifadhi again must not
+   * receive the crate twice. Cleared on success, and whenever the basket is
+   * edited — a changed basket is a different delivery, not a retry.
+   */
+  const pendingKey = useRef<string | null>(null);
+
+  useEffect(() => {
+    pendingKey.current = null;
+  }, [basket]);
 
   const handleApiError = useCallback(
     (caught: unknown, fallback: string): string => {
@@ -167,7 +187,17 @@ export function ReceiveScreen({
     setSaveError(null);
 
     try {
-      const receipt = await apiClient.receiveStock(branchId, { lines: toReceiptLines(basket) });
+      if (pendingKey.current === null) {
+        receiptCounter.current += 1;
+        pendingKey.current = newIdempotencyKey(deviceId, receiptCounter.current);
+      }
+
+      const receipt = await apiClient.receiveStock(branchId, {
+        lines: toReceiptLines(basket),
+        idempotencyKey: pendingKey.current,
+      });
+
+      pendingKey.current = null;
 
       setBasket(emptyBasket);
       setQuery('');
@@ -175,8 +205,14 @@ export function ReceiveScreen({
       setNotice(null);
       setSaved(receipt);
     } catch (caught) {
+      // The key is left standing on purpose: the phone cannot tell whether the
+      // delivery committed, so pressing Hifadhi again must ask the same
+      // question rather than a new one.
       setSaveError(
-        handleApiError(caught, 'Mzigo haujahifadhiwa · The delivery could not be recorded'),
+        handleApiError(
+          caught,
+          'Mzigo haujahifadhiwa · The delivery could not be recorded. Bonyeza Hifadhi tena — hautapokelewa mara mbili.',
+        ),
       );
     } finally {
       setSaving(false);

@@ -194,6 +194,13 @@ export interface ReceiveStockInput {
     unitCostTzs?: number;
   }>;
   note?: string;
+  /**
+   * Sent on every delivery, and **the same key on every retry** — exactly as a
+   * sale's is. A dropped response is the normal case on the network a pilot
+   * shop runs on; without this, pressing Hifadhi again would receive the same
+   * crate twice.
+   */
+  idempotencyKey?: string;
 }
 
 export interface StockReceiptLine {

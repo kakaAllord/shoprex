@@ -11,6 +11,7 @@ import { requireBranchAccess } from '../../common/branch-access';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { requireBusiness } from '../../common/tenancy';
 import { PrismaService } from '../../database/prisma.service';
+import { enrollmentQrSvg } from '../../domain/enrollment-qr';
 import {
   generateEnrollmentCode,
   hashEnrollmentCode,
@@ -39,6 +40,13 @@ export interface DeviceView {
 export interface IssuedEnrollmentView {
   enrollmentId: string;
   code: string;
+  /**
+   * The same code drawn as a scannable SVG, so a phone standing at the counter
+   * can read it instead of somebody spelling it out. Carries the bare code and
+   * nothing else — scanning and typing hand the redemption route an identical
+   * string. Shown once, exactly like `code`, and never stored.
+   */
+  qrSvg: string;
   expiresAt: Date;
   deviceName: string;
   branchId: string;
@@ -123,6 +131,7 @@ export class DevicesService {
     return {
       enrollmentId: enrollment.id,
       code,
+      qrSvg: await enrollmentQrSvg(code),
       expiresAt: enrollment.expiresAt,
       deviceName,
       branchId: branch.id,

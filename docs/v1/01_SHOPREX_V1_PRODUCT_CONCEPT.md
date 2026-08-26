@@ -41,11 +41,27 @@ branch** — that is the decision everything else here follows from.
 
 1. The owner creates the worker: a name, a password, and the branch they work in. Shoprex mints the worker's internal id at that moment, for database identity and audit attribution — never as a sign-in secret.
 2. The owner issues a **one-time enrollment code** for a branch, naming the phone so they can tell their handsets apart, and hands the code over.
-3. Whoever is holding the phone opens Shoprex and enters the code. The backend mints the `device_id`, binds that installation to the business and the branch, and the app stores the id.
+3. Whoever is holding the phone opens Shoprex and gets the code in — by **scanning the QR** on the owner's screen, or by **typing it**. The backend mints the `device_id`, binds that installation to the business and the branch, and the app stores the id.
 4. From then on, **anyone who works at that branch** signs in on that phone: they tap their name and type their own password. No code, and no email — workers never had one.
 
 **Only owners issue enrollments.** Not platform administrators. Confirmed
 2026-08-22.
+
+**Scanning and typing are the same act.** Added at the owner's request. When
+the code is issued, the console shows it both as text and as a QR code. Two
+people standing together should not have to read a fourteen-character secret
+aloud across a shop and hope it was heard right — so the phone offers **Soma
+msimbo** and the whole exchange is a moment of pointing a camera. Somebody
+setting up a phone at a distance, reading the code down a phone line, types it
+exactly as before.
+
+The QR carries the **bare code and nothing else**: no link, no server address,
+no wrapper. That is what makes it an alternative rather than a second
+mechanism — both paths submit the identical string, so there is one redemption
+route with one set of rules, and the backend cannot tell which was used. The
+picture is the credential, so it is shown once and stored nowhere, exactly like
+the code itself. Typing remains the default on the phone because it always
+works: no camera, no permission to grant, no screen to point at.
 
 **A phone is shared, and the person signing in is the attribution.** Changed
 2026-08-23, replacing the original one-device-per-worker rule. The reason is
@@ -102,6 +118,39 @@ Start a new sale
 ```
 
 The app should not force catalogue setup before the shop can start selling. It should also not insert a customer-registration step into checkout. A simple debtor name may be recorded when the owner permits a debt sale.
+
+**Adding a product also has a front door.** Added at the owner's request.
+Inline creation during a sale stays exactly as above — it is the reason the
+shop can sell on its first day — but it was, until now, the *only* way in:
+creating a product meant scanning something unknown or searching for a name
+that returned nothing. Somebody unpacking six new lines had to pretend to sell
+or receive each one. **Bidhaa** on the home screen is the same creation sheet
+without the errand, and doubles as the price list a worker can check. Reading
+it needs no permission beyond being staff; adding needs `SELL` or
+`RECEIVE_STOCK`, the same pair the backend already requires. A price is **not**
+required there — cataloguing what the shop stocks is §6's progressive
+enrichment, and only selling cannot invent a price.
+
+**When the network dies mid-sale, as hardened in Phase 8.** The seller is told
+the sale did not go through, the cart is still there, and — this is the part
+that matters — **pressing Lipa again cannot charge the customer twice.** The
+message says so in as many words: *bonyeza Lipa tena — hakitauzwa mara mbili*.
+
+That is not a new feature so much as a promise the product had been making and
+not keeping. The backend has refused duplicate sales since Phase 4; the phone
+was generating a new key for each attempt, so a retry was simply a second sale
+with a second set of stock movements. A shopkeeper's only safe move on a bad
+connection was to do nothing and hope, which on a Tanzanian phone is not a
+usable answer.
+
+Editing the cart after a failure starts a **new** sale, deliberately. If the
+seller adds an item and pays again, they get what they can see in front of them
+rather than the receipt of the attempt that silently succeeded — an invisible
+line missing from a bill would be a worse failure than a rare duplicate.
+
+**Pokea mzigo behaves the same way** for a delivery, and had the same gap in a
+sharper form: receiving carried no retry protection at all, and V1 has no way
+to correct a saved delivery. A doubled crate stayed doubled.
 
 ## 6. Stock and product behavior
 
@@ -216,6 +265,16 @@ receipt forecloses it: the receipt is a view over data the backend already
 holds, so adding printing later reads only the same sale.
 
 The web dashboard automatically groups activity by the shop’s local calendar day. Owners and authorized managers can view daily sales totals, payment-method totals, debts, stock received, current stock, worker totals, and branch comparisons. V1 includes an in-app report and PDF download. Automatic external delivery of reports is deliberately postponed until the core product is proven.
+
+**As built in Phase 7.** The **Ripoti** screen is the dashboard this section
+describes: a branch and a date at the top, then the day's totals, the payment
+breakdown, debts by name, who sold what, the best sellers, what arrived on the
+shelf, and — for a shop with more than one branch — a branch comparison, ending
+with the transactions themselves. A **Pakua PDF** button downloads the same
+figures as a document, for a shop that wants to keep or send on a day's
+numbers. The day is always the shop's own: choosing a date never asks the
+browser or the phone what day it is, only the backend, which resolves it from
+`Business.timezone` and its own clock.
 
 ## 8. What V1 does not include
 

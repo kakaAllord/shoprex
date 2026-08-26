@@ -493,6 +493,77 @@ body {
   color: var(--shoprex-amber);
 }
 
+/* Loading. Added in Phase 8: the console had empty, error, and denied, and
+   nothing at all for the seconds a slow Tanzanian connection actually spends
+   waiting — during which the browser showed the previous page and the reader
+   had no way to tell a slow click from an ignored one. */
+.shoprex-loading {
+  border: 1px dashed var(--shoprex-border);
+  border-radius: var(--shoprex-radius);
+  padding: 24px 20px;
+  background: var(--shoprex-surface-muted);
+}
+
+.shoprex-loading__label {
+  margin: 0 0 14px;
+  font-weight: 600;
+  color: var(--shoprex-text-muted);
+  text-align: center;
+}
+
+.shoprex-loading__bars {
+  display: grid;
+  gap: 10px;
+}
+
+.shoprex-loading__bar {
+  display: block;
+  height: 14px;
+  border-radius: 7px;
+  background: linear-gradient(
+    90deg,
+    var(--shoprex-border) 25%,
+    var(--shoprex-surface) 50%,
+    var(--shoprex-border) 75%
+  );
+  background-size: 200% 100%;
+  animation: shoprex-shimmer 1.4s ease-in-out infinite;
+}
+
+.shoprex-loading__bar:nth-child(2) {
+  width: 82%;
+}
+
+.shoprex-loading__bar:nth-child(3) {
+  width: 64%;
+}
+
+@keyframes shoprex-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* A phone held still for a long wait should not also be a flashing light. */
+@media (prefers-reduced-motion: reduce) {
+  .shoprex-loading__bar {
+    animation: none;
+  }
+}
+
+/* Two ways forward, side by side, wrapping rather than overflowing on a
+   phone-width console. */
+.shoprex-state__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 14px;
+}
+
 .shoprex-note--owner {
   background: var(--shoprex-surface-muted);
   border-left: 3px solid var(--shoprex-amber);
@@ -611,6 +682,27 @@ body {
   letter-spacing: 0.08em;
   color: var(--shoprex-emerald-strong);
   word-break: break-all;
+}
+
+/*
+ * The same code, for a phone that is standing at the counter. On a white
+ * plate rather than the panel's emerald wash: a QR wants maximum contrast
+ * against its quiet zone, and a tinted background is exactly what makes a
+ * reader hesitate at an angle or in poor light.
+ */
+.shoprex-secret__qr {
+  display: inline-block;
+  background: #fff;
+  padding: 8px;
+  border-radius: 12px;
+  margin: 12px 0 8px;
+  line-height: 0;
+}
+
+.shoprex-secret__qr svg {
+  display: block;
+  width: 200px;
+  height: 200px;
 }
 
 .shoprex-table td .shoprex-sub {

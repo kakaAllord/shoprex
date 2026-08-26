@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { colors, spacing } from '../../app/theme';
 import { Banner, BrandHeader, Card, Field, PrimaryButton, SecondaryButton } from '../../app/ui';
 import { ApiClient, ShoprexApiError } from '../../core/api/apiClient';
+import { ScannerSheet } from '../../components/ScannerSheet';
 
 /**
  * The first thing a new phone shows: the one-time code the owner handed over.
@@ -14,6 +15,13 @@ import { ApiClient, ShoprexApiError } from '../../core/api/apiClient';
  *
  * The phone is not enrolled to a person. Whoever works at that branch signs in
  * on it afterwards with their own password.
+ *
+ * **Two ways in, one code.** Somebody standing next to the owner's laptop
+ * scans the QR; somebody on the phone reading a code down the line types it.
+ * Both hand `enrollDevice` the identical string — the QR carries the bare code
+ * and nothing else — so there is one redemption path and one set of rules, and
+ * the backend cannot tell which was used. Typing stays the default because it
+ * always works: no camera, no permission, no screen to point at.
  */
 export function EnrollScreen({
   apiClient,
@@ -27,13 +35,29 @@ export function EnrollScreen({
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
 
-  const submit = async () => {
+  /**
+   * One submit path, whether the code was typed or scanned.
+   *
+   * The scanned value goes through exactly the same trim, the same request,
+   * and the same error handling — a scan is a faster way of filling the same
+   * box, not a second mechanism with its own rules.
+   */
+  const enrol = async (raw: string) => {
+    const trimmed = raw.trim();
+
+    if (trimmed.length < 8) {
+      setError('Msimbo huu ni mfupi mno · That code is too short to be an enrolment code');
+
+      return;
+    }
+
     setBusy(true);
     setError(null);
 
     try {
-      const { deviceId } = await apiClient.enrollDevice(code.trim());
+      const { deviceId } = await apiClient.enrollDevice(trimmed);
 
       onEnrolled(deviceId);
     } catch (caught) {
@@ -47,14 +71,24 @@ export function EnrollScreen({
     }
   };
 
+  const submit = () => enrol(code);
+
+  const onScanned = (scanned: string) => {
+    setScannerOpen(false);
+    // Shown in the box as well as submitted, so a failure leaves something the
+    // person can see, check against the screen, and correct by hand.
+    setCode(scanned.trim());
+    void enrol(scanned);
+  };
+
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
       <BrandHeader subtitle="Sajili kifaa · Enrol this phone" />
 
       <Text style={styles.title}>Weka namba ya usajili</Text>
       <Text style={styles.lede}>
-        Mmiliki wa duka atakupa namba ya mara moja. Iandike hapa chini · Your shop
-        owner gives you a one-time code. Type it below.
+        Mmiliki wa duka atakupa msimbo wa mara moja. Isome kwa kamera au uandike ·
+        Your shop owner gives you a one-time code. Scan it, or type it below.
       </Text>
 
       {error ? (
@@ -64,6 +98,28 @@ export function EnrollScreen({
       ) : null}
 
       <Card>
+        <SecondaryButton
+          testID="enroll-scan"
+          tone="success"
+          label="Soma msimbo · Scan the QR code"
+          onPress={() => {
+            if (busy) {
+              return;
+            }
+
+            setError(null);
+            setScannerOpen(true);
+          }}
+        />
+        <Text style={styles.scanHint}>
+          Kama upo karibu na skrini ya mmiliki, isome QR · If you are next to the
+          owner&apos;s screen, scan their QR code.
+        </Text>
+
+        <View style={styles.divider}>
+          <Text style={styles.dividerText}>au uandike · or type it</Text>
+        </View>
+
         <Field
           label="Namba ya usajili · Enrolment code"
           testID="enroll-code"
@@ -84,6 +140,13 @@ export function EnrollScreen({
           onPress={submit}
         />
       </Card>
+
+      <ScannerSheet
+        visible={scannerOpen}
+        mode="enrollment"
+        onScanned={onScanned}
+        onClose={() => setScannerOpen(false)}
+      />
 
       <View style={styles.footer}>
         <SecondaryButton
@@ -109,4 +172,7 @@ const styles = StyleSheet.create({
   lede: { color: colors.textMuted, marginTop: spacing.xs, marginBottom: spacing.lg },
   mutedText: { color: colors.textMuted, fontSize: 13 },
   footer: { gap: spacing.sm },
+  scanHint: { color: colors.textMuted, fontSize: 13, marginTop: spacing.xs },
+  divider: { alignItems: 'center', marginVertical: spacing.md },
+  dividerText: { color: colors.textMuted, fontSize: 12 },
 });

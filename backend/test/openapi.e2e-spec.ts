@@ -122,6 +122,12 @@ describe('OpenAPI contract (e2e)', () => {
       ['/api/v1/payment-methods', 'post'],
       ['/api/v1/payment-methods/{id}', 'patch'],
       ['/api/v1/branches/{branchId}/sales', 'get'],
+      // Phase 7 - reports and PDF. The day boundary is resolved once, in
+      // src/domain/day-window.ts, from Business.timezone and the server clock;
+      // the PDF is rendered from the very response the first route returns.
+      ['/api/v1/branches/{branchId}/reports/daily', 'get'],
+      ['/api/v1/branches/{branchId}/reports/daily.pdf', 'get'],
+      ['/api/v1/reports/branches', 'get'],
     ];
 
     it.each(expected)('documents %s %s', (path, method) => {
@@ -185,6 +191,9 @@ describe('OpenAPI contract (e2e)', () => {
       ['/api/v1/payment-methods', 'post'],
       ['/api/v1/payment-methods/{id}', 'patch'],
       ['/api/v1/branches/{branchId}/sales', 'get'],
+      ['/api/v1/branches/{branchId}/reports/daily', 'get'],
+      ['/api/v1/branches/{branchId}/reports/daily.pdf', 'get'],
+      ['/api/v1/reports/branches', 'get'],
     ] as [string, HttpMethod][])(
       'marks %s %s as requiring a bearer token',
       (path, method) => {
@@ -299,7 +308,18 @@ describe('OpenAPI contract (e2e)', () => {
       // Stock belongs to a branch, so the branch is a path segment. That is
       // also what keeps this allowlist from growing: receiving a delivery
       // never needed to name a branch in a request body.
-      expect(propertiesOf('CreateStockReceiptDto')).toEqual(['lines', 'note']);
+      //
+      // `idempotencyKey` was added in Phase 8 and this assertion caught it,
+      // which is the pin working rather than the pin being in the way: the
+      // list is exact so that any new field on a tenant-adjacent body has to
+      // be looked at once. It names no tenant and no branch — it is a
+      // client-chosen string, scoped to the caller's own business by the
+      // backend exactly as a sale's is.
+      expect(propertiesOf('CreateStockReceiptDto')).toEqual([
+        'lines',
+        'note',
+        'idempotencyKey',
+      ]);
       expect(document.paths['/api/v1/branches/{branchId}/stock-receipts']).toBeDefined();
     });
 
@@ -359,6 +379,12 @@ describe('OpenAPI contract (e2e)', () => {
       // point of redemption, so only *responses* are examined here. It appears
       // in exactly one of them, at issue, and must never leak into a device
       // view, a staff view, a profile, or an audit entry.
+      //
+      // `qrSvg` is held to the same rule and for the same reason: it is not a
+      // picture *about* the code, it is the code, in a form a camera reads.
+      // Leaking it from a device view would be leaking the credential, and
+      // spelling that out here is what stops it being added somewhere later on
+      // the grounds that it "is only an image".
       const responseSchemas = new Set(
         Object.values(document.paths)
           .flatMap((item) => Object.values(item))
@@ -390,7 +416,9 @@ describe('OpenAPI contract (e2e)', () => {
             ('properties' in document.components!.schemas![name] &&
               document.components!.schemas![name].properties) ||
               {},
-          ).some((key) => /^(code|token|tokenHash|password|passwordHash)$/i.test(key)),
+          ).some((key) =>
+            /^(code|token|tokenHash|password|passwordHash|qrSvg)$/i.test(key),
+          ),
         )
         .sort();
 

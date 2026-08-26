@@ -13,9 +13,9 @@ export const dynamic = 'force-dynamic';
  * The owner's front door.
  *
  * Deliberately counts and doors, **not money**. Daily takings, payment
- * breakdowns, and branch comparisons are Phase 7's dashboard, and building a
- * smaller version of them here would mean two places doing local-day
- * arithmetic — which is exactly how the two come to disagree.
+ * breakdowns, and branch comparisons live on Ripoti, and building a smaller
+ * version of them here would mean two places doing local-day arithmetic —
+ * which is exactly how the two come to disagree.
  */
 export default async function OwnerPage() {
   const { profile, token } = await requireConsole('owner');
@@ -51,7 +51,7 @@ export default async function OwnerPage() {
       title={business.name}
       lede={
         isOwner(profile)
-          ? 'Duka lako kwa ujumla. Ripoti za siku na PDF zinakuja katika awamu inayofuata. Your shop at a glance — daily reports and PDFs arrive in the next phase.'
+          ? 'Duka lako kwa ujumla. Kwa mauzo ya siku na PDF, angalia Ripoti. Your shop at a glance — for daily takings and a PDF, see Ripoti.'
           : 'Matawi uliyokabidhiwa. Mmiliki ndiye anayeongeza matawi, wafanyakazi, simu na njia za malipo. The branches delegated to you.'
       }
     >

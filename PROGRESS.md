@@ -17,16 +17,24 @@ If Part A and Part B ever disagree (e.g. the table says "Complete" but a section
 | 4 | React Native mobile selling flow | Complete | Yes — every clause driven end to end, over HTTP as a worker and through the screens, see §4. Revised after owner review, see §4a | 2026-08-23 |
 | 5 | React Native stock receiving and operational visibility | Complete | Yes — both halves of the clause driven by real tests: the backend over HTTP as a stock keeper, the phone through the screens, see §5 | 2026-08-23 |
 | 6 | Next.js owner and admin web app | Complete | Yes — every clause driven end to end over HTTP by all four roles, plus a live console smoke test, see §6 | 2026-08-23 |
-| 7 | Reports and PDF | Not started | — | — |
-| 8 | Pilot hardening and launch | Not started | — | — |
+| 7 | Reports and PDF | Complete | Yes — every clause driven end to end over real HTTP, plus a live console and PDF-download check against a running backend and web server, see §7 | 2026-08-24 |
+| 8 | Pilot hardening and launch | In progress | Partly — every code deliverable is verified by real tests (see §8); **low-end Android testing and the pilot shop itself are outstanding**. Distribution and over-the-air updates configured 2026-08-25, unproven against EAS, see §8a | 2026-08-25 |
 
 **Status values:** `Not started` / `In progress` / `Blocked` / `Complete`. Only mark `Complete` when the acceptance-check column says `Yes`, backed by a real test run referenced in that phase's section below.
 
-**Active phase:** Phase 7, not yet started. Phase 6 closed on 2026-08-23 with **848** automated tests passing across all three surfaces — see §6. It was the first phase since Phase 3 with real backend work in it, exactly as §5 predicted: **seven new routes** and one additive migration. Five of those routes settle debts earlier phases deliberately took out and recorded — the price edit and the barcode attach (§3 known issues 2 and 3), the payment-method writes Phase 4 deferred, and the sales list Phase 4 shipped only the receipt half of. The sixth and seventh, `PATCH /businesses/{id}` and its `BusinessActiveGuard`, were added at the owner's request during the session so a platform administrator can suspend a shop account and have it take effect on the very next request rather than at token expiry. `web/` went from 4 routes to 16 and from 20 tests to 61.
+**Active phase:** Phase 8, **in progress**. The session opened by re-running the full suite from the recorded 1,038 and getting exactly 1,038, so the table and reality agreed before anything was touched. It now stands at **1,179** — backend unit 260 (unchanged), backend e2e 493 → **613**, web 66 → **80**, mobile 219 → **226**.
 
-Two pieces of existing behaviour were corrected deliberately, both recorded in §6: `Product.isActive` is now actually enforced (it was honoured in search and nowhere else, so "discontinue" would have been a button that half-worked), and `currentProfile()` no longer treats every backend failure as a sign-out.
+Phase 8 found **three real defects** rather than merely confirming earlier work, and the first is the one the phase exists for:
 
-**Exact next action:** begin Phase 7's reports and PDF per `docs/v1/03_SHOPREX_V1_IMPLEMENTATION_PHASES.md`, and mark the Phase 7 row `In progress` when that work starts. Nothing blocks it. **Decide local-day boundaries once, in the backend**, and let both the dashboard and the PDF read the same answer — the Phase 6 sales list deliberately has no date filter for exactly this reason. Note also that any report must read the **snapshots** on the sale (`methodName`, `unitPriceTzs`, `productName`) rather than joining back to the live `PaymentMethod` or `ProductUnit` rows, or it will report last month using this month's names and prices. **Before writing any of it, run the full suite** — 848 is the number it must start from.
+1. **The phone threw away the backend's idempotency protection.** `SaleScreen` minted a *fresh* key on every submit attempt, so a sale that committed but lost its response was rung up a second time when the seller pressed **Lipa** again — stock and all. The backend's guarantee had been exact and unreachable since Phase 4. Fixed, and `Pokea mzigo` given the same treatment.
+2. **Stock receipts had no idempotency key at all**, so a retried delivery doubled the crate — and V1 has no way to correct a saved delivery. The owner approved adding one (nullable, mirroring sales); it is now the only schema change this phase makes.
+3. **The web console had no loading, error, or not-found boundaries.** Every screen is a server component that awaits the backend, so a slow connection showed the *previous* page with no sign anything was happening.
+
+Also fixed: `AuditAction.BRANCH_CREATED` had been declared since Phase 1 and written by nobody, and `test/e2e-env.js` never actually raised the e2e rate limits (dotenv had already set them, so its `??` never fired) — which is the intermittent-throttling bug §6 logged.
+
+**Exact next action:** the code deliverables are done and verified. What remains is not code — **walk §8's Manual testing on a real low-end Android phone**, which needs a new EAS build (`cd mobile && npm run build:dev`), and **select the pilot shop**. Phase 8 must not be marked `Complete` until both have happened: its acceptance check names a real shop, and "low-end Android testing" cannot be satisfied from a laptop.
+
+**Since 2026-08-25 the phone can also be given to somebody who is not a developer.** §8a added an installable pilot APK and over-the-air JavaScript updates: `expo-updates`, a channel per branch (`staging` for QA, `production` for the pilot), and a `pilot` build profile. **None of it has been run against EAS** — it is configuration verified only by typecheck and the suite, and §8a's *Manual testing* is what turns it into a fact. It also does not remove §8 blocker 3: an APK is only as installable as the server it points at, and **the backend is still hosted nowhere**, so every configured address remains `localhost` or a LAN IP. That is now the single thing between this repository and a working pilot.
 
 ---
 
@@ -201,6 +209,8 @@ Behaviour preserved exactly: a 503 from `/health/ready` is still treated as *rea
 | `production` | AAB | Play Store, much later |
 
 `buildType: "apk"` matters: the default AAB cannot be installed directly on a phone. Update channels are deliberately omitted because `expo-updates` is not installed — adding a `channel` without it fails the build. EAS Update is worth revisiting for Phase 8, when pushing JavaScript fixes to pilot shops without reinstalling becomes valuable.
+
+> **Superseded 2026-08-25 (Phase 8).** That revisit happened: `expo-updates` is installed, all three profiles now carry a `channel`, and a fourth profile `pilot` was added. **The three-profile table above is the Phase 1 state, not the current one** — see §8a for the current profiles, channels, and the environment each one reads.
 
 **Environment variables.** For a **development** build the JavaScript is served by local Metro, so `EXPO_PUBLIC_SHOPREX_API_BASE_URL` comes from `mobile/.env` at bundle time — changing it needs only `npm start --clear`, never a rebuild. For **preview/production** the bundle is built in the cloud and `.env` is not uploaded, so the value must be supplied with `eas env:create`. This keeps addresses out of the repository, per the owner's rule.
 
@@ -1464,7 +1474,636 @@ Nothing blocks Phase 7. Open, and each needing the owner:
 - Prices and costs are integers. Do not introduce a float or a Decimal for money without an ADR.
 
 ### §7 — Reports and PDF
-*(empty until started)*
+
+**Status:** Complete. **Verified:** Yes — every clause of the acceptance check is driven end to end over real HTTP, plus a live check against a running backend and web server (see Manual testing below). **Date:** 2026-08-24.
+
+**No new table.** A report is a read across data every earlier phase already recorded — sales, sale lines, payments, stock receipts. The only schema-adjacent addition is the `date` query parameter on the existing sales list. Three new routes:
+
+| Route | Auth | Purpose |
+|---|---|---|
+| `GET /branches/{branchId}/reports/daily` | `VIEW_REPORTS` | The day, read back: totals, payment breakdown, debts, sellers, best sellers, stock received, and the transactions themselves |
+| `GET /branches/{branchId}/reports/daily.pdf` | `VIEW_REPORTS` | The identical report as a downloadable PDF, rendered from the very response object above |
+| `GET /reports/branches` | `VIEW_REPORTS` | One day across every branch the caller may see, for comparison |
+
+#### Acceptance check evidence
+
+Phase 7's acceptance check reads: *A user can select a date and branch, view the same totals in the dashboard and PDF, and verify that the report uses Tanzania local-day boundaries derived from server-stamped timestamps. External report sending is not part of V1.*
+
+| Acceptance criterion | Where it is proven |
+|---|---|
+| **Select a date and branch** | `/owner/reports` — a branch bar (when there is more than one) and a date form, both server-rendered links/form so the URL stays bookmarkable. Backend: `?date=` on both report routes and on the sales list, all resolved by one function |
+| **The same totals in the dashboard and the PDF** | `test/reports.e2e-spec.ts` §4 — the PDF's text stream is deliberately uncompressed; the suite downloads it and greps the actual bytes for every headline total, payment row, debt row, and seller row the JSON response carried, rather than trusting the two paths agree. Verified again live — see Manual testing, Feature 3 |
+| **Tanzania local-day boundaries from server-stamped timestamps** | `src/domain/day-window.spec.ts` (31 tests, including zones with daylight saving, to prove the arithmetic is genuine and not a hard-coded +03:00) and `test/reports.e2e-spec.ts` §1 — a sale one millisecond either side of local midnight is proven to land in the correct day, never UTC midnight |
+| **External report sending is not part of V1** | Not built. The PDF is a download only |
+
+#### Files changed
+
+**Backend — new:**
+- `src/domain/day-window.ts` + `.spec.ts` — the one place a shop-local calendar day becomes a UTC instant range, via `Intl`, not a hard-coded offset
+- `src/domain/report.ts` + `.spec.ts` — pure aggregation (totals, payment breakdown, debts, sellers, received, top products) over snapshotted sale/receipt values
+- `src/domain/pdf.ts` + `.spec.ts` — the hand-written, dependency-free PDF writer (base-14 fonts only, uncompressed text stream)
+- `src/modules/reports/` — `reports.module.ts`, `reports.service.ts`, `reports.controller.ts`, `daily-report.pdf.ts`, `dto/daily-report.query.dto.ts`, `dto/report-response.dto.ts`
+- `test/reports.e2e-spec.ts` (36 tests), `test/reports-isolation.e2e-spec.ts` (17 tests)
+
+**Backend — edited:**
+- `src/app.module.ts` — registers `ReportsModule`
+- `src/modules/sales/dto/list-sales.dto.ts`, `src/modules/sales/sales.service.ts` — the `?date=` filter §6 deferred, calling `dayWindow()` and nothing else
+- `test/openapi.e2e-spec.ts` — the three new routes added to every walk (documented, bearer-required)
+
+**Web — new:**
+- `src/lib/api/reports.ts` — typed client for both report routes
+- `src/app/owner/reports/page.tsx` — the dashboard: branch bar, date form, summary tiles, payment/debt/seller/best-seller/stock-received tables, branch comparison (branches > 1 only), transactions, PDF download link
+- `src/app/api/reports/pdf/route.ts` — the download proxy. The access token lives in an httpOnly cookie, so a plain `<a href>` straight to the backend cannot carry it; this route reads the cookie server-side, forwards the bearer token, and streams the PDF bytes back with the backend's `Content-Disposition`
+
+**Web — edited:**
+- `src/components/console-nav.tsx` (+ its test) — added **Ripoti**, right after Muhtasari
+- `src/app/owner/page.tsx`, `src/app/owner/sales/page.tsx` — the ledes that promised reports "next phase" now point at Ripoti
+
+**Docs:**
+- `README.md` — API surface table, the three new routes, a "Daily reports" narrative section, the two new test-suite rows, `/owner/reports` in the web route table
+- `docs/v1/01_SHOPREX_V1_PRODUCT_CONCEPT.md` §7 — "As built in Phase 7" paragraph
+- `docs/v1/02_SHOPREX_V1_ENGINE_AND_MATH.md` §8 — the day-window/report/PDF mechanism, with file links
+
+#### Tests and results
+
+Full suite, all three surfaces, run from a clean start of the session and again after every change:
+
+```bash
+cd backend && npm run lint && npm run typecheck && npm test && npm run test:e2e && npm run build
+cd web     && npm run typecheck && npm test && npm run build
+cd mobile  && npm run typecheck && npm test
+```
+
+| Surface | Before this phase | After this phase |
+|---|---|---|
+| Backend unit | 152 / 8 suites | **252 / 11 suites** |
+| Backend e2e | 430 / 15 suites | **489 / 17 suites** |
+| Web | 61 / 13 files | 61 / 13 files (unchanged count; `console-nav.test.tsx` now also asserts Ripoti) |
+| Mobile | 205 / 12 suites | 205 / 12 suites (untouched — Phase 7 has no phone screen) |
+| **Total** | **848** | **1,007** |
+
+Lint, typecheck, and build all pass on backend and web. Mobile typecheck and test pass; mobile was not touched.
+
+#### Manual testing
+
+A green suite proves the arithmetic and the authorization; it does not prove a person can find the button, read the numbers, or actually receive a file. Both dev servers were started fresh this session (an existing backend process on :3001 predated the current code and was restarted so the new routes were actually being tested), and the flows below were driven end to end — sign-in through the real `/api/session` route so the access token sat in the same httpOnly cookie a browser would use, then the dashboard and the PDF download were fetched exactly as the browser fetches them.
+
+**Feature 1 — Reading the day back, as an owner** *(must pass)*
+
+**Setup:** backend on `:3001`, web on `:3000`, signed in as the seeded owner (`owner@shoprex.co.tz` / `shoprex12345`).
+
+1. Go to **Ripoti** in the navigation. → The page opens on today, in the shop's own day (`Ripoti ya 24 Aug 2026 kwa Tawi Kuu` on a shop whose only branch was Tawi Kuu at the time) — nobody had to pick a date for "today" to be right.
+2. With no sales yet recorded for the day: → Every table shows its empty state in words — *Hakuna malipo siku hii*, *Hakuna deni siku hii*, *Hakuna mzigo siku hii*, *Hakuna mauzo siku hii* — never a blank table that reads as broken.
+3. A product was added, stock received (50 Kipande at TSh 1,800 each), and two sales rung up through the real `POST /branches/{id}/sales` route — one cash (TSh 7,500, TSh 2,500 change), one on Deni to "Mteja wa QA" (TSh 5,000. → Reloading Ripoti now shows **Zilizoingia TSh 7,500**, **Deni TSh 5,000**, **Jumla ya mauzo TSh 12,500**; the payment table lists Taslimu and Deni separately; the debts table names "Mteja wa QA" for TSh 5,000; Sabuni ya Royco QA appears in both the best-sellers and the stock-received tables, the latter showing **Jumla ya gharama TSh 90,000** (50 × 1,800).
+4. This shop has four branches. → A branch comparison table appeared automatically (it is hidden for a one-branch shop), listing all four, with only Tawi Kuu carrying the day's numbers and the other three at zero — not merely present but each branch clickable straight to its own report.
+
+**Feature 2 — Choosing a date and a branch** *(must pass)*
+
+1. The window note under the date form reads `2026-08-23T21:00:00.000Z → 2026-08-24T21:00:00.000Z (Africa/Dar_es_Salaam)` for "today". → 21:00 UTC the evening before is midnight in Dar es Salaam — the boundary is not UTC midnight, and it says so rather than asking to be trusted.
+2. Typing a different date into the field and pressing **Tazama** reloads the page at that date via a normal GET form — the URL carries `?branch=…&date=…`, so it is bookmarkable and the back button works.
+
+**Feature 3 — Downloading the PDF, and it matching the dashboard exactly** *(must pass)*
+
+1. Press **Pakua PDF**. → A file named `shoprex-tawi-kuu-2026-08-24.pdf` downloads, `Content-Type: application/pdf`.
+2. The file is a real PDF (`%PDF-1.4` … `%%EOF`) of 5.8 KB — no embedded font, because none is needed.
+3. Reading the file's own bytes (its text stream is deliberately uncompressed) shows **every number and name the dashboard had just shown**: "Duka la Mfano", "Tawi Kuu", "TSh 12,500", "TSh 5,000", "TSh 7,500", "Sabuni ya Royco QA", "Mteja wa QA", "Taslimu", "Deni" — all present, because the PDF is composed from the same response object the dashboard renders and computes nothing of its own.
+4. Requesting the PDF **without** the session cookie → `401`. Requesting it with the cookie but no `branchId` → `400`. Visiting `/owner/reports` signed out → a `307` redirect to `/login`. Hiding the button is not authorization; the backend and the proxy both refuse on their own.
+
+**What has no automated coverage at all**
+
+1. **The console in a real browser window.** Every check above went through real HTTP with a real cookie, exactly as a browser would, but no test has clicked the button with a mouse or watched the file land in a Downloads folder.
+2. **A manager's or a plain seller's view of Ripoti**, and the amber permission-denied panel it should show. `test/reports-isolation.e2e-spec.ts` proves the backend refuses correctly (403 for a worker without `VIEW_REPORTS`, 404 for a branch a manager was not given); the web `ErrorState` component that renders that refusal is shared and unit-tested (`states.test.tsx`), but nobody has watched it render for this specific page.
+3. **A PDF reader actually opening the file.** The bytes were proven structurally sound (matched offsets, a valid xref table, real object boundaries) and were read back as text; no test or manual check opened it in Acrobat, Preview, or a phone's PDF viewer.
+4. **The page at a phone width**, same as every other console screen since Phase 6.
+
+#### Decisions made
+
+- **The PDF is hand-written, with no dependency**, per the owner's explicit choice when asked (see the session's `AskUserQuestion`): a ~600-line pure module using only the fourteen base fonts every PDF reader already has, with a deliberately uncompressed text stream. That property is what let `test/reports.e2e-spec.ts` prove "the same totals in the dashboard and the PDF" by reading generated bytes rather than by trusting two implementations to agree.
+- **The sales list's `?date=` filter was built here**, as §6's handoff note asked, calling the exact same `dayWindow()` the report calls — so a sale the report counts for a day is provably a sale the list shows for that date (`test/reports.e2e-spec.ts` §2 asserts the two agree).
+- **The branch comparison is scoped, not owner-only** — the same rule `GET /branches` already uses. A manager over two branches has the same reason to compare them an owner does; a manager over one sees a table of one.
+- **A day's transaction list is capped at 500** (`REPORT_TRANSACTION_LIMIT`) with `transactionsTruncated` saying so. The **totals above it always cover the whole day** regardless of the cut — only the row-by-row list is bounded, and the note points at the sales list's own `?date=` filter for the complete paged view.
+- **Reports are read-only.** No route here writes anything, so no new audit action was needed — doc 02 §9's audit table is unchanged by this phase.
+
+#### Known issues / risks
+
+1. **`GET /reports/branches` runs one query per branch, sequentially awaited via `Promise.all`.** Fine for the branch counts a pilot shop will have; would want batching before a shop with dozens of branches existed, which V1 does not anticipate.
+2. **The received-stock cost total silently treats a partial recording as informative rather than refusing it.** `costIsPartial` is surfaced (both in the API and with a `*` and a note in the PDF and the dashboard), but a shop that records cost for some deliveries and not others gets an honest partial total rather than a refusal to show one at all. This mirrors the existing `unitCostTzs` optionality from Phase 3 and is not a new decision, just newly visible.
+3. **The date form's browser-native `<input type="date">` renders differently across browsers and has no keyboard-only affordance tested.** Worth a look on a low-end Android browser per the "worth a look" standard the rest of the console carries.
+4. Issues carried from §1–§6 all still stand — see §6's own list for the fullest copy: the `e2e-env.js` rate-limit bug, npm allow-scripts, no ESLint config in `web/` or `mobile/`, non-interactive `prisma migrate dev`, minimal password policy, in-memory rate limiting, no refresh tokens, one-parent-per-unit, the stale `schema.prisma` header comment, Stoo unpaginated on the phone, the phone still using `branchIds[0]`, no way to correct a saved delivery, the console's shared rate-limit bucket, the 50-product cap on the products screen, `BusinessActiveGuard`'s per-request cost, and the console having no audit view for a platform administrator.
+
+#### Blocked / awaiting user
+
+Nothing blocks Phase 8. The open questions carried from §6 (a shared barcode catalogue, a second large packaging per product, moving shared mobile components, an admin-editable shop record, the pilot shop's identity, and the disk-cleanup confirmation) are all still open and still none of them block a phase — see §6 for the full table.
+
+#### Handoff notes
+
+- **`dayWindow(date, timezone)` in `src/domain/day-window.ts` is the one place a shop-local day becomes a UTC instant range.** Anything that ever needs "today," "yesterday," or a date filter should call it rather than re-deriving an offset — the module is proven against zones with daylight saving specifically so nobody is tempted to hard-code `+03:00`.
+- **`src/domain/report.ts` reads only snapshotted values** — `SaleLine.productName`, `SalePayment.methodName`, and so on — never a live `Product`, `ProductUnit`, or `PaymentMethod` row. Any future report route should follow the same rule, or it will report last month using this month's names and prices.
+- **`daily-report.pdf.ts` computes nothing.** It takes the exact `DailyReportView` the controller already built for the dashboard and lays it out. If a future change needs the PDF to show something new, add it to `DailyReportView` and `report.ts` first, and let the PDF read it from there — never compute a number inside the PDF module itself.
+- **`src/domain/pdf.ts` is a general small PDF writer**, not report-specific: it knows about pages, fonts, and right-aligned money columns, and nothing about sales. A future PDF (a stock take, a staff list) can reuse it directly.
+- **The web PDF download must go through a server route (`/api/reports/pdf`), never a direct link to the backend.** The access token lives in an httpOnly cookie for exactly the reason stated in `README.md` — page scripts, and so a plain anchor tag, cannot see it.
+- **A backend dev server was found already running on `:3001` at the start of this session's manual check, predating the Phase 7 code.** It was stopped and restarted so the live check exercised the actual new routes rather than a stale build. If a future session finds a long-uptime backend process, treat that as a signal to restart it before trusting a live check against it.
+
+### §7a — QR enrollment, and a front door for adding products (2026-08-24)
+
+**Status:** Complete. **Verified:** Yes — the QR proven to be a faithful, scannable rendering by decoding it back to a module matrix and comparing every module against the encoder, then redeeming the decoded code against a live backend; the catalogue screen driven by its own tests. **Date:** 2026-08-24.
+
+**Requested by the owner** during the Phase 7 session, immediately after Phase 7 closed:
+
+> "Also at onboarding devices, one should be able to switch between qr code or token, so for those that are close can just do qr code scanning and boom they are in, also make sure there is a way to add products in the mobile app."
+
+Recorded here rather than inside §7 because §7 is closed and its acceptance check stands as verified on its own terms. Neither of these is new V1 scope: **doc 02 §3 always specified** that "the QR code and link must contain a short-lived, single-use enrollment token", and Phase 8's deliverables already list "QR enrollment expiry tests" — so the QR was planned work pulled forward. Adding products on the phone was **already built** (doc 01 §5 requires it mid-sale); what was missing was a way to reach it.
+
+#### What was actually found first
+
+**Adding a product on the phone already worked**, in both Mauzo and Pokea mzigo, through the shared `NewProductSheet`. But it was reachable only two ways: scan a barcode the shop does not know, or search a name and get **zero** results. Both are rescues from a different task. Somebody unpacking six new lines had to pretend to sell or receive each one, and a search returning the *wrong* products — rather than none — offered no way in at all. That is almost certainly why it read as missing.
+
+So the work was not "build product creation" but "give it a front door", which is what the owner chose from the options offered.
+
+#### Decisions the owner made
+
+Both were put to the owner rather than assumed, because one was a dependency and the other a navigation change:
+
+| Question | Answer | Consequence |
+|---|---|---|
+| How to generate the QR | **Add the `qrcode` npm package** | A new backend dependency, against the hand-written precedent `pdf.ts` set in §7. Less code owned, one more supply-chain surface |
+| Where the add-product affordance goes | **A separate Bidhaa tile on Home** | Home went from three destinations to four, and the `Route` union with it — a larger change than a button inside the two existing flows |
+
+#### How it works
+
+**One code, two ways in.** `POST /devices/enrollments` now returns `qrSvg` alongside `code`: the same code drawn as a scannable SVG at error-correction level M, in Shoprex's dark neutral, with the quiet zone the spec requires. The QR carries the **bare code and nothing else** — no URL, no JSON, no server address — so scanning and typing submit an identical string to `POST /devices/enroll`. One redemption path, one set of rules, and the backend cannot tell which was used. Typing stays the default on the phone because it always works: no camera, no permission, no screen to point at.
+
+**`qrSvg` is the credential, not a picture about it**, and is held to every rule `code` is: returned once at issue, never persisted, never logged, absent from the audit summary. `test/openapi.e2e-spec.ts` now names it in the response-leak walk beside `code` and `password`, so it cannot later be added to a device view on the grounds that an image is harmless. **That gap was real before this change** — the old regex would not have caught `qrSvg` — and closing it was part of the work rather than an afterthought.
+
+**`ScannerSheet` gained a `mode`.** `product` listens for `ean13`/`upc_a`; `enrollment` listens for `qr`. Which symbologies are live is decided by the mode, never by what happens to be in frame — so a bottle's barcode cannot be submitted as an enrollment code, and a QR poster cannot be submitted as a product. Pointing the camera at the wrong thing does nothing, which is the correct behaviour. `expo-camera` already supported QR; only the type list excluded it, so there is **no new mobile dependency**.
+
+**Bidhaa** is a fourth destination off Home. Reading the catalogue needs no permission beyond being staff, so the tile is never absent — somebody granted nothing at all can still look up what a thing costs. The **add** button inside needs `SELL` or `RECEIVE_STOCK`, the same pair the backend's create route takes, and its absence is paired with a written explanation rather than a dimmed button. It reuses `NewProductSheet` rather than copying it, so the sale, the delivery, and the catalogue cannot drift into three different ideas of what a product is. **`requirePrice` is false there**: cataloguing is doc 01 §6's progressive enrichment, and only selling cannot invent a price.
+
+#### Files changed
+
+**Backend — new:** `src/domain/enrollment-qr.ts` + `.spec.ts` (8 tests).
+
+**Backend — edited:** `package.json` (+`qrcode`, +`@types/qrcode`), `src/modules/devices/devices.service.ts` (`IssuedEnrollmentView.qrSvg`), `src/modules/devices/dto/device-response.dto.ts`, `test/device-enrollment.e2e-spec.ts` (+4 QR tests), `test/openapi.e2e-spec.ts` (leak walk now covers `qrSvg`).
+
+**Web — new:** `src/components/enrollment-form.test.tsx` (5 tests).
+
+**Web — edited:** `src/lib/api/devices.ts`, `src/lib/action-state.ts`, `src/app/owner/actions.ts` (thread `qrSvg` through), `src/components/enrollment-form.tsx` (render it), `src/styles/globals.css` (`.shoprex-secret__qr`).
+
+**Mobile — new:** `src/features/products/ProductsScreen.tsx` + `.test.tsx` (11 tests).
+
+**Mobile — moved** (2026-08-25, on the owner's approval — see below): `src/features/sale/{ScannerSheet,NewProductSheet,UnitNameField}.tsx` and `UnitNameField.test.tsx` -> `src/components/`. Recorded by git as renames, so `--follow` still traces them.
+
+**Mobile — edited:** `src/components/ScannerSheet.tsx` (the `mode` prop), `src/features/enroll/EnrollScreen.tsx` (scan-or-type through one submit path), `src/features/home/HomeScreen.tsx` + `.test.tsx` (the Bidhaa tile, +3 tests), `src/app/App.tsx` (the `products` route and its back-button entry), plus the import lines in `SaleScreen.tsx`, `ReceiveScreen.tsx`, and `ProductsScreen.tsx`.
+
+**Docs:** `README.md` (enrollment route row, "Two ways in, one code", the mobile screens table, the Bidhaa note), `docs/v1/01_SHOPREX_V1_PRODUCT_CONCEPT.md` §4 and §5, `docs/v1/02_SHOPREX_V1_ENGINE_AND_MATH.md` §3.
+
+#### Tests and results
+
+| Surface | Before (§7 close) | After |
+|---|---|---|
+| Backend unit | 252 / 11 suites | **260 / 12 suites** |
+| Backend e2e | 489 / 17 suites | **493 / 17 suites** |
+| Web | 61 / 13 files | **66 / 14 files** |
+| Mobile | 205 / 12 suites | **219 / 13 suites** |
+| **Total** | **1,007** | **1,038** |
+
+Lint, typecheck, and build pass on backend and web; mobile typecheck and test pass.
+
+#### Manual testing
+
+##### Feature 1 — Enrolling a phone by scanning *(must pass)*
+
+**Setup:** backend on `:3001`, web on `:3000`, signed in as the seeded owner. A **new mobile build is required** before any of this can be tried — `barcodeTypes` is native scanner configuration, so a JavaScript reload will not pick it up: `cd mobile && npm run build:dev`.
+
+1. Go to **Simu**, choose a branch, name the phone, press **Tengeneza msimbo**. → The code appears as large text **and** as a QR on a white plate beneath it, with *write it down now, it is never shown again* in as many words.
+2. On the phone's enrolment screen, tap **Soma msimbo**. → Android asks for camera permission the first time. Allow it. → The viewfinder says *Soma msimbo wa usajili*, not the product-scanning copy.
+3. Point it at the QR on the laptop. → The code fills the box **and submits itself**; the phone lands on the sign-in screen for that branch.
+4. Issue another code and **type** it instead. → Identical outcome. → *Both paths submit the same string.*
+5. Point the enrolment scanner at an ordinary **product barcode**. → **Nothing happens.** → *A bottle is not an enrolment code; the mode decides what is listened for.*
+6. Point the **Mauzo** scanner at an enrollment QR. → **Nothing happens**, for the mirror reason.
+7. Reload the console page after issuing. → **The QR and the code are both gone.** → *Shoprex stores only the hash; this is not a bug.*
+8. Refuse the camera permission. → A warning banner explaining the code can still be typed, and a working way to do it — not a blank viewfinder.
+
+##### Feature 2 — Adding a product without an errand attached *(must pass)*
+
+1. On the phone's home screen, tap **Bidhaa**. → The catalogue, with a price for each packaging. A product nobody has priced says *Haijawekwa bei*, never `TSh 0`.
+2. Tap **Ongeza bidhaa mpya**. → The same sheet Mauzo uses, but **the price box is optional** — the note under the button says so.
+3. Add a product with no price. → It appears in the list as unpriced. Now try to sell it in **Mauzo**. → The backend refuses with *weka bei kwanza*. → *The honest outcome, not a hidden one.*
+4. Tap **Soma namba** and scan a barcode the shop already knows. → The list narrows to that product. Scan one it does not know. → The creation sheet opens with the barcode carried in.
+5. Sign in as a worker with **only `VIEW_STOCK`**. → **Bidhaa is still there** and readable. → Inside, there is **no add button**, and a banner naming the two permissions that would grant it.
+6. Sign in as somebody granted **nothing at all**. → Home shows the "nothing granted" banner *and* Bidhaa. → *Reading what a thing costs is not a permission the shop withholds.*
+7. Press Android's back button from Bidhaa. → Home, the same as every other screen.
+
+##### What has no automated coverage at all
+
+1. **A camera actually reading the QR off a screen.** The rendering is proven faithful by decoding it back to a 21×21 module matrix and comparing all 441 modules against the encoder's own output, and the decoded string was then redeemed against a live backend — but no physical phone has been pointed at a physical laptop. **This is the single most important thing to test by hand**, and it is where glare, angle, and screen brightness live.
+2. **`expo-camera` reading `qr` at all.** The mode switch is a prop change proven by typecheck and review; the native scanner is mocked in every test and has never run.
+3. **The QR at a real size on a real screen** — whether 220px is large enough for a cheap phone camera across a counter.
+4. **Bidhaa with a large catalogue.** It inherits the backend's 50-product cap without yet saying so — see known issues.
+
+#### Known issues / risks
+
+1. **Bidhaa inherits the 50-product cap silently.** `GET /products` caps `limit` at 50; the web products screen says so and this one does not, so a shop with a larger catalogue sees a list that stops without explanation. The fix is the properly-paged catalogue route §6 already identified.
+2. **`qrcode` brings 15 transitive packages.** They were reviewed as a count, not read. The 3 high-severity advisories `npm audit` reports are **pre-existing and unrelated** — `prisma` → `@prisma/config` → `deepmerge-ts` — and were deliberately left alone rather than fixed as an unrequested dependency change.
+3. **The QR is rendered with `dangerouslySetInnerHTML`.** Safe for one specific reason, written down at the call site: the markup is generated by our own backend from a code our own backend minted moments earlier, is never user input, and is never round-tripped. If any of that stops being true, this stops being safe.
+4. ~~**`ScannerSheet` still lives in `src/features/sale/`**~~ — **resolved 2026-08-25.** The owner approved the move, and `ScannerSheet`, `NewProductSheet`, and `UnitNameField` now live in `src/components/`, mirroring `web/src/components/`. This closes §5 known issue 1 and §6 blocked-question 3. See "The move" below.
+5. **Bidhaa searches on every keystroke**, with no debounce, so a fast typist spends a request per character against the 120/min default bucket. Fine for a pilot; the same rate-limit concern §6 raised for the console.
+
+#### The move (2026-08-25)
+
+**The owner approved it**, so §6's blocked question 3 — open since §5 — is closed. `ScannerSheet`, `NewProductSheet`, `UnitNameField`, and `UnitNameField.test.tsx` moved from `mobile/src/features/sale/` to **`mobile/src/components/`**.
+
+Why there: it mirrors `web/src/components/`, which already means exactly this in the sibling app, and it was the literal shape of the approved question ("into a shared folder") rather than a cleverer split. The alternative considered and rejected was scattering them — `NewProductSheet` and `UnitNameField` into `features/products/`, `ScannerSheet` somewhere else — which would have left `SaleScreen` and `ReceiveScreen` importing product-creation UI from another feature's folder, trading one misleading path for two.
+
+The mobile tree now reads: `src/features/<name>/` for what belongs to one feature, `src/components/` for composite pieces several features share, `src/app/ui.tsx` for the small building blocks those compose from, `src/domain/` for pure rules, `src/core/` for the API client and session store.
+
+**It changed no behaviour and no test.** 219/219 mobile tests passed before and after, unmodified; typecheck clean. Git recorded all four as renames (`R`), so `git log --follow` still traces their history. What did change is prose: `ScannerSheet` now carries a note saying why it sits where it does, and `NewProductSheet`'s doc comment no longer claims two callers when it has three.
+
+#### Blocked / awaiting user
+
+Nothing blocks Phase 8, and nothing is outstanding from this section. The questions carried from §6 (a shared barcode catalogue, a second large packaging per product, an admin-editable shop record, the pilot shop's identity, and the disk-cleanup confirmation) are all still open and still none of them block a phase — see §6 for the full table.
+
+#### Handoff notes
+
+- **`ScannerSheet`'s `mode` decides symbologies, not the frame.** If a third scanning use appears, add a mode rather than widening an existing one — the isolation between them is the feature, not an implementation detail.
+- **`src/components/` is now the home for anything several mobile features share.** Put a new cross-feature sheet there rather than in whichever feature happened to need it first — that is precisely the mistake this section had to undo.
+- **`qrSvg` is a credential.** It is in `openapi.e2e-spec.ts`'s leak walk by name. Do not add it to any response other than the single issue moment.
+- **Bidhaa passes `requirePrice={false}`.** That is deliberate, and it is the one thing separating cataloguing from selling in that shared sheet. Do not "fix" it to match Mauzo.
+- **The QR was verified by decoding, not by eyeballing.** A throwaway script parsed the SVG paths back into a module matrix and compared all 441 modules against `QRCode.create()`. If the rendering options ever change, redo that check rather than trusting that the output still looks like a QR code.
 
 ### §8 — Pilot hardening and launch
-*(empty until started)*
+
+**Status:** In progress. **Verified:** Partly — every *code* deliverable is driven by real tests over real HTTP, and the backup/recovery test was run for real against PostgreSQL. **Low-end Android testing and the pilot shop itself are outstanding**, and neither can be done from a laptop. **Date:** 2026-08-25.
+
+Phase 8's job is not to add features. It is to ask whether the thing built over seven phases would survive a Monday in a real shop — and the honest answer, at the start of this session, was *not quite*. Three defects were found, and the first one mattered enough on its own to justify the phase.
+
+#### The suite was re-run before anything was touched
+
+`PROGRESS.md` recorded **1,038** at §7a's close. The full three-surface suite was run first and returned exactly **1,038**, so the master table and reality agreed before a line changed. That is the continuity rule doing its job rather than a formality: a phase that starts from an unverified number cannot honestly report what it changed.
+
+#### What was actually broken
+
+**1. The phone never used the backend's idempotency key.** *(the important one)*
+
+`SaleScreen.complete()` incremented a counter and called `newIdempotencyKey(deviceId, counter)` **inside** the submit handler, on every attempt. The key is `${deviceId}:${Date.now()}:${counter}`, so every retry carried a brand-new one.
+
+The consequence, in a shop: the seller taps **Lipa**; the backend commits the sale; the response is lost to a dropped signal or the client's own 10-second abort; the phone says *Mauzo hayajakamilika* with the cart still full; the seller taps **Lipa** again — and the backend, quite correctly, rings up a **second sale** with its own stock movements. The customer is charged twice and the stock is taken twice.
+
+The backend side has been exact since Phase 4 and is thoroughly tested (`sales.e2e-spec.ts` §7, including the racing-requests case a unique index catches). It was simply unreachable. A guarantee no client invokes is not a guarantee.
+
+The fix is small and the non-obvious half is the second clause: **mint once per cart, reuse on every retry, discard on success — or when the cart changes.** Reusing a key across an *edit* would be worse than minting a new one, because the backend would answer with the sale the first attempt created and the line the seller had just added would vanish off a receipt they watched themselves build. A changed cart is a different sale; an unchanged cart submitted twice is a retry. An effect keyed on `cart` clears the pending key, so the distinction is structural rather than remembered.
+
+The failure message now says so: *bonyeza Lipa tena — hakitauzwa mara mbili*. A seller standing in front of a customer needs to know whether pressing again is safe, and previously nobody could tell them.
+
+**The new test was checked against the old code.** Re-introducing the one-line bug fails exactly one assertion — *retries with the very same idempotency key* — and leaves the other 23 in that file green. A regression test that has never been seen to fail is a guess.
+
+**2. Stock receipts had no idempotency key at all.**
+
+`CreateStockReceiptDto` carried `lines` and `note`. A retried delivery on a bad connection received the crate twice, and V1 has **no way to correct a saved delivery** — so the only remedy was a compensating sale that never happened. This was the sharper version of defect 1: there the mechanism existed and went unused; here it did not exist.
+
+Fixed with the owner's approval (see *Decisions made*). It is the only schema change this phase makes.
+
+**3. The web console had no loading, error, or not-found boundaries.**
+
+No `loading.tsx`, `error.tsx`, or `not-found.tsx` existed anywhere under `web/src/app/`. Every console screen is a server component that awaits the backend before rendering anything, so on a shop's connection clicking **Ripoti** left the *previous* page on screen with no indication that a navigation had begun — which invites a second tap. An unhandled exception fell through to Next's own English developer screen, and a mistyped address to its unstyled `404 — This page could not be found`.
+
+`globals.css` had the comment *"The four states nobody looks at until they happen"* above three states. Empty, error, and permission-denied were done carefully in Phase 6; loading was never written.
+
+#### Smaller findings from the audit review
+
+- **`AuditAction.BRANCH_CREATED` was declared in the schema in Phase 1 and written by nobody.** `BranchesService` did no auditing at all. An owner asking "who opened this branch, and when" got an empty log, which reads as proof that nothing happened. Now recorded, inside the same transaction as the branch itself.
+- **`test/e2e-env.js` never actually raised the e2e rate limits.** It read `process.env.RATE_LIMIT_DEFAULT ?? '10000'` — but `dotenv` had already loaded `backend/.env` two lines above, so a developer's real `RATE_LIMIT_DEFAULT=120` always won and every functional suite ran at the production limit. Long suites then failed with `429` depending on machine speed. This is the intermittent-throttling bug §6 logged, and it had to go first: a cumulative pass that fails at random proves nothing.
+
+#### An observation, not a defect
+
+**A self-registered shop starts with no branch.** `POST /auth/signup` creates the business and the owner and stops; only the development seed makes a "Tawi Kuu". Every operational route takes a branch id, so opening the first branch is the real first step of onboarding. Nothing is wrong — the console has `/owner/branches` — but it was assumed otherwise while writing the journey test, and it is now asserted explicitly so the next person does not assume it either.
+
+#### Acceptance check evidence
+
+> A selected pilot shop can onboard, enroll devices, sell, receive stock, manage workers, view reports, and recover from ordinary network/API errors without data duplication.
+
+| Clause | Where it is proven |
+|---|---|
+| **Onboard** | `test/pilot-journey.e2e-spec.ts` §1 — sign-up from an empty database, phone normalised, timezone and currency defaulted, first branch opened and audited |
+| **Enroll devices** | §3 — code issued, QR proven to carry the identical string, redeemed, refused a second time, two people signing in on the one handset |
+| **Sell** | §5 — barcode lookup, cash with backend-computed change, a Kreti broken open, price snapshotting, debt, and a seller who may read their own receipt but not the day's list |
+| **Receive stock** | §4 — a delivery in the packaging it arrived in, read back as physical packages, refused to a seller without `RECEIVE_STOCK` |
+| **Manage workers** | §2 — manager, seller, stock keeper; a foreign branch answers 404 |
+| **View reports** | §6 — totals, debts, sellers, best sellers, the PDF read back for the same names, and a manager scoped to their own branch |
+| **Recover from ordinary network/API errors without data duplication** | §8 — retried sale, retried delivery, both racing, a sale and a delivery each failing on their third line leaving *nothing* behind, negative stock, and the later receipt landing on the true count. Plus the phone's half, in `SaleScreen.test.tsx` and `ReceiveScreen.test.tsx` |
+| **A phone with the wrong clock cannot corrupt which day a sale is reported under** | §7 — a body carrying `createdAt` is **refused** (400, via `forbidNonWhitelisted`) rather than silently ignored; the stamp lands inside the window the request occupied; and a sale is proven to fall on the correct shop-local day either side of a boundary that is not UTC midnight |
+
+**The pilot shop is a representative one**, created through the real onboarding routes from an empty database. A real shop has not been selected — see *Blocked / awaiting user*.
+
+#### Deliverables, one by one
+
+| Deliverable | Status |
+|---|---|
+| Cumulative tenant-isolation and permission pass | `test/isolation-pass.e2e-spec.ts`, 60 tests |
+| Sale idempotency | Backend already exact; **the client was not** — fixed, and the fix is regression-tested against the old code |
+| Stock transaction tests | All-or-nothing on both sales and deliveries, plus the new receipt idempotency (6 tests in `stock-receiving.e2e-spec.ts`) |
+| QR enrollment expiry tests | 6 tests in `device-enrollment.e2e-spec.ts` |
+| Device revocation tests | Existing suite confirmed, plus `pilot-journey` §9 |
+| Device clock-skew handling | `pilot-journey` §7 |
+| Low-end Android testing | **Not done.** Needs a real phone and a new EAS build — see *Blocked*. The build path it needs is now in place: see §8a |
+| Barcode failure handling | Mis-scan `400` vs unknown-code `404` proven on both surfaces |
+| Loading/error/empty states | The missing loading, error, and not-found boundaries added; 14 new web tests |
+| Audit review | `BRANCH_CREATED` gap found and closed |
+| Database backup/recovery test | `scripts/backup.js verify`, **run for real** — 87 rows across 19 tables restored intact |
+| Pilot feedback log | `docs/v1/05_SHOPREX_V1_PILOT_FEEDBACK_LOG.md` |
+
+#### The cumulative pass, and why it is not redundant
+
+`catalogue-isolation`, `sales-isolation`, and `reports-isolation` each prove their own phase's resources well. None of them can prove that **nothing was missed** — a resource added in a hurry with no isolation test does not fail any of them, it simply is not mentioned.
+
+So `isolation-pass.e2e-spec.ts` does two jobs, and the second is what makes it cumulative:
+
+1. It sweeps every tenant-scoped route from another shop's token and from an unassigned branch **in one table**, so the answers can be compared against each other rather than read one suite at a time.
+2. It reads the **Prisma datamodel itself** and fails when a model carrying a `businessId` is not named in its coverage map. A tenant-bearing table added in Phase 9 breaks this test on the day it lands — while the person who added it is still looking at it, rather than in a review a year later. Adding a name to the map is not the fix; writing the test it names is.
+
+Two details worth knowing before editing it:
+
+- **Every table row holds a thunk, not a string.** `it.each` evaluates its table at collection time, before `beforeAll`, so template literals would bake in `undefined` for every id — and then **pass**, because `/api/v1/branches/undefined` answers 404 too. Each case now asserts its URL contains no `undefined` before asserting the refusal. This was caught on the first run and it is exactly the failure mode a thorough-looking suite hides.
+- **Every `it.each` row has uniform arity**, GETs included. A row one element short makes Jest pass its own `done` callback into the gap, which it then refuses to run alongside an async function — five tests failed for a reason with nothing to do with permissions.
+
+The final check is a cross-tenant **stitching** query rather than a row count: for every model carrying both `businessId` and `branchId`, no row may have a branch belonging to a different business. That is corruption no HTTP test can see, because each request looked correct on its own and the two ids only disagree when read together. The obvious test — counting rows owned by a third business — was written first and was worthless, since other suites legitimately leave their own shops behind; it would have failed on a clean codebase and taught everyone to ignore it.
+
+#### Files changed
+
+**Backend — new:**
+- `test/pilot-journey.e2e-spec.ts` (48 tests) — the acceptance check as one shop's first day
+- `test/isolation-pass.e2e-spec.ts` (60 tests) — the cumulative pass
+- `scripts/backup.js` — `backup` / `restore` / `verify`
+- `prisma/migrations/20260825120000_stock_receipt_idempotency/`
+
+**Backend — edited:**
+- `prisma/schema.prisma` — `StockReceipt.idempotencyKey` (nullable) + `@@unique([businessId, idempotencyKey])`
+- `src/modules/stock/dto/create-stock-receipt.dto.ts`, `src/modules/stock/stock.service.ts` — the key, the retry lookup, the cross-branch `409`, and the P2002 race collapse
+- `src/modules/branches/branches.service.ts` — records `BRANCH_CREATED` in the same transaction as the branch
+- `test/e2e-env.js` — the rate-limit override that never fired
+- `test/stock-receiving.e2e-spec.ts` (+6), `test/device-enrollment.e2e-spec.ts` (+6 QR expiry)
+- `test/openapi.e2e-spec.ts` — the `CreateStockReceiptDto` property pin, updated deliberately after it caught the new field
+- `package.json` — `backup`, `backup:restore`, `backup:verify`
+
+**Web — new:** `src/app/error.tsx`, `src/app/not-found.tsx`, `src/app/owner/loading.tsx`, `src/app/admin/loading.tsx`, `src/app/boundaries.test.tsx` (10 tests).
+
+**Web — edited:** `src/components/states.tsx` (`LoadingState`) + `.test.tsx` (+4), `src/styles/globals.css` (skeleton and action-row styles, both honouring `prefers-reduced-motion`).
+
+**Mobile — edited:** `src/features/sale/SaleScreen.tsx` + `.test.tsx` (+4), `src/features/receive/ReceiveScreen.tsx` + `.test.tsx` (+3), `src/core/api/apiClient.ts` (`ReceiveStockInput.idempotencyKey`), `src/app/App.tsx` (passes `deviceId` to `ReceiveScreen`).
+
+**Docs:** `README.md` (API surface, backup section, the two new suites, the idempotency narrative), `docs/v1/01` §5, `docs/v1/02` §§3/5/6, `docs/v1/00` (index), `docs/v1/05_SHOPREX_V1_PILOT_FEEDBACK_LOG.md` (new), `.gitignore` (`backend/backups/`, `*.dump`).
+
+#### Tests and results
+
+```bash
+cd backend && npm run lint && npm run typecheck && npm test && npm run test:e2e && npm run build
+cd web     && npm run typecheck && npm test && npm run build
+cd mobile  && npm run typecheck && npm test
+```
+
+| Surface | Before this phase | After |
+|---|---|---|
+| Backend unit | 260 / 12 suites | 260 / 12 suites (unchanged — this phase's work is integration-shaped) |
+| Backend e2e | 493 / 17 suites | **613 / 19 suites** |
+| Web | 66 / 14 files | **80 / 15 files** |
+| Mobile | 219 / 13 suites | **226 / 13 suites** |
+| **Total** | **1,038** | **1,179** |
+
+Lint, typecheck, and build pass on backend and web; mobile typecheck and tests pass.
+
+**The backup/recovery test was run for real**, not merely written:
+
+```text
+node scripts/backup.js verify
+  … 19 tables, live vs restored, every pair equal
+  Recovery verified: 87 rows across 19 tables.
+```
+
+#### Manual testing
+
+Everything below rests on things no test in this repository has ever touched: a real camera, a real thumb, a real network dying. **Two features here have no automated coverage at all and are the entire reason this section exists.**
+
+**Setup**
+
+1. PostgreSQL running; `cd backend && npm run prisma:deploy && npm run prisma:seed && npm run start:dev`.
+2. `cd web && npm run dev` — sign in at `/login` as `owner@shoprex.co.tz` / `shoprex12345`.
+3. **A new mobile build is required.** `ReceiveScreen` gained a prop and both screens changed their retry behaviour; a JavaScript reload covers those, but if you have not built since §7a's `barcodeTypes` change the scanner will not read a QR at all: `cd mobile && npm run build:dev`.
+4. Enrol a phone from **Simu** and sign in as a worker with `SELL` and `RECEIVE_STOCK`.
+
+---
+
+**Feature 1 — Selling twice by accident, and finding you cannot** *(must pass — this is the phase)*
+
+The one thing to test if you only have ten minutes. It needs a real network you can break.
+
+1. Build a cart in **Mauzo** with one item, tap **Lipa**, choose **Taslimu**. → The complete button enables.
+2. **Turn the phone's Wi-Fi and mobile data off**, then tap **Maliza mauzo**. → After about ten seconds: *Mauzo hayajakamilika*, and beneath it *Bonyeza Lipa tena — hakitauzwa mara mbili*. The cart is **still there**.
+3. Turn the network back on and tap **Maliza mauzo** again. → The sale completes and the receipt appears.
+4. On the console, open **Ripoti**. → **One** sale, not two. → *This is the whole test.*
+5. Now the harder case, and the one worth doing properly: start a new sale, tap **Maliza mauzo**, and **pull the plug on the backend** (`Ctrl-C` the `npm run start:dev`) at the moment the spinner appears — so the sale genuinely commits and the response genuinely never arrives. Restart the backend, tap **Maliza mauzo** again. → The receipt appears, and **Ripoti still shows one sale**. → *That is the case the whole mechanism exists for, and step 2 only simulates it.*
+6. Repeat step 2, but this time **close the payment sheet, add one more item**, and pay again. → **Two** sales in Ripoti, the second with two lines. → *Correct. A changed cart is a different sale, and the added line must not vanish into the first receipt.*
+
+**Feature 2 — Receiving the same delivery twice by accident** *(must pass)*
+
+1. In **Pokea mzigo**, add a product, set the quantity to 6, turn the network off, tap **Hifadhi**. → *Mzigo haujahifadhiwa … Bonyeza Hifadhi tena — hautapokelewa mara mbili.* The basket is still there.
+2. Turn the network on, tap **Hifadhi** again. → Saved.
+3. Open **Stoo**. → The stock went up by **6**, not 12. → *There is no way to correct a saved delivery in V1, so this is the only protection there is.*
+4. Repeat, but change the quantity to 8 between the two attempts. → A **second** delivery of 8 is recorded, for the same reason as Feature 1 step 6.
+
+**Feature 3 — The console on a slow connection** *(worth a look)*
+
+1. In the browser's dev tools, set the network to **Slow 3G**.
+2. Click **Ripoti** from the overview. → A **skeleton** appears immediately — *Inapakia · Loading…* with grey bars — and the navigation stays visible. → *Before this phase the previous page just sat there.*
+3. Same on **Stoo**, **Mauzo**, **Bidhaa**, **Wafanyakazi**.
+4. Visit `/owner/nonsense`. → *Ukurasa haupo*, in Swahili, with one link back — **not** Next's unstyled English 404, and **not** dressed in red. → *A wrong address is a wrong turn, not a fault.*
+5. Stop the backend and reload `/owner/reports`. → *Kuna hitilafu*, with **Jaribu tena** and **Rudi mwanzo**, and *Hakuna taarifa iliyopotea*. Restart the backend and press **Jaribu tena**. → The page renders.
+6. Turn on the OS "reduce motion" setting and reload a slow page. → The skeleton is still there and **no longer shimmers**.
+
+**Feature 4 — An enrollment QR that has gone stale** *(worth a look)*
+
+1. Issue a code from **Simu** with a short expiry, leave the QR on screen, and wait it out.
+2. On the phone, **Soma msimbo**, point at the stale QR. → Refused — the same refusal typing it gives.
+3. Issue a fresh code. **Type** it on one phone, then point a second phone at the QR still on screen. → The second is refused. → *One code, two ways in, one redemption.*
+
+**Feature 5 — Backup and recovery** *(must pass before a real shop's data exists)*
+
+1. `cd backend && npm run backup:verify`. → A table of every tenant-bearing table, live beside restored, and `Recovery verified: N rows across 19 tables`.
+2. Deliberately break it: `npm run backup`, ring up a sale, then restore that dump into a scratch database and confirm the sale is **absent** from it. → *Proves the tool is reading the dump and not the live database.*
+3. Confirm `git status` shows **nothing** under `backend/backups/`.
+
+**Feature 6 — A cheap Android phone** *(must pass — no automated coverage whatsoever)*
+
+The whole product runs on the phone a shop can afford, and nothing in 1,179 tests has been near one.
+
+1. Install the build on the **oldest, slowest Android device available**.
+2. Time the cold start, **Mauzo** opening, and the scanner opening. → Anything over a few seconds on the scanner is a finding.
+3. Scan ten items in a row as fast as you can. → Every scan lands as a cart line; none is dropped or double-counted.
+4. Read a **QR off a laptop screen at arm's length**, at an angle, with a light behind you.
+5. Check the tap targets with an actual thumb — the **+/−** steppers and **Maliza mauzo** especially.
+6. Rotate, background the app mid-sale, take a call, come back. → The cart survives.
+
+**What has no automated coverage at all**
+
+1. **A real Android phone, of any kind.** Every mobile test runs in Jest with `expo-camera` and `expo-secure-store` mocked. The scanner has never actually run.
+2. **A camera reading a QR off a screen.** The rendering is proven byte-identical to the encoder's own output; no photons have been involved.
+3. **The console in a real browser window**, clicked with a mouse, with a file landing in a Downloads folder.
+4. **A genuinely lost response.** Feature 1 step 2 simulates it by disabling the radio; step 5 is the real thing, and only a person can do it.
+5. **The camera-permission-denied screen.** `ScannerSheet` renders one and no test exercises that branch.
+6. **The console at phone width**, carried over from §6 and still true.
+
+#### Decisions made
+
+- **Stock receipts got an idempotency key** — put to the owner with the alternatives (document it as a risk; guard it client-side only) and approved. Nullable rather than required, because the column arrived after the route did and PostgreSQL treats NULLs as distinct in a unique index: a client sending no key behaves exactly as before and never collides with another. It mirrors `Sale` deliberately, including the `409` when a key is reused in a different branch — answering with the other branch's receipt would quietly tell a stock keeper that goods reached a shelf they are not standing at.
+- **A changed cart abandons the pending idempotency key.** The alternative — one key per cart forever — is worse: after a failed attempt the seller adds an item, pays, and gets the *first* attempt's receipt with the new line missing. An invisible line missing from a bill beats a rare duplicate only if you never have to explain it to the customer.
+- **Backup is a script plus a verified restore**, chosen by the owner over a documented procedure alone. Scheduling, offsite copies, encryption, and retention are deliberately **not** here: they are decisions about where a pilot is hosted, which has not been decided.
+- **The pilot journey is verified representatively**, chosen by the owner, since no real shop has been selected. Every step runs through the real onboarding routes from an empty database.
+- **The pilot feedback log is `docs/v1/05`**, chosen by the owner, following the numbered-document convention. It is empty of entries and says so.
+- **`test/openapi.e2e-spec.ts`'s property pin was updated, not loosened.** It caught `idempotencyKey` on `CreateStockReceiptDto`, which is the pin working. The list stays exact so the next new field on a tenant-adjacent body also has to be looked at once.
+- **A backend dev server was stopped**, with the owner's approval, because it held the Prisma query-engine DLL and blocked `prisma generate`. It predated this session's schema change and was serving a stale client. It was **not** restarted — bring it back with `cd backend && npm run start:dev`.
+
+#### Known issues / risks
+
+1. **`StockService`'s idempotency handling is a near-copy of `SalesService`'s.** `findReceiptByIdempotencyKey`/`asExistingReceipt` mirror `findByIdempotencyKey`/`asExistingSale` at about twenty lines each. Factoring them into a shared generic helper was considered and rejected: the two differ in Prisma delegate, return type, and error text, and the abstraction would cost more indirection than it removes. Worth revisiting if a **third** idempotent command ever appears — that is the point at which the pattern is real rather than a coincidence.
+2. **`scripts/backup.js` is not covered by `npm run lint`**, which runs over `src` and `test` only. It was run for real instead, which is stronger, but it will not be caught by CI if it rots.
+3. **`backup:verify` needs `pg_dump`, `pg_restore`, and `psql` on `PATH`.** On Windows they are in `C:\Program Files\PostgreSQL\17\bin`, which is not on `PATH` by default; the script says so when it cannot find them. It also needs permission to create a database.
+4. **Low-end Android is entirely unmeasured.** Not a known issue so much as a known unknown, and the largest one in the project.
+5. **The `--forceExit` warning on the e2e suite.** Jest reports open handles after `isolation-pass` completes. Not investigated; the suite passes and `npm run test:e2e` (which uses `--runInBand` and no `--forceExit`) exits cleanly, so this is an artefact of running that file alone.
+6. Issues carried from §1–§7a all still stand — see §7's list for the fullest copy. Two of them are now **closed**: the `e2e-env.js` rate-limit bug (fixed here) and §7a's note that the QR had no expiry test.
+
+#### Blocked / awaiting user
+
+| # | Question | Why it blocks marking Phase 8 complete |
+|---|---|---|
+| 1 | **Which shop is the pilot?** | The acceptance check says *a selected pilot shop*. The journey is proven against a representative one, which is as far as code can take it. Onboarding a real shop is the remaining half |
+| 2 | **Who has a low-end Android phone, and when can it be walked through Feature 6?** | "Low-end Android testing" is a named deliverable and cannot be satisfied from a laptop. It is also where the highest-risk untested code lives — the camera |
+| 3 | **Where will the pilot be hosted, and who runs the backups?** | The mechanism and its recovery test exist. Schedule, offsite copy, encryption, and retention are hosting decisions nobody has made, and a backup that only ever runs when somebody remembers is not a backup |
+
+Questions carried from §6 (a shared barcode catalogue, a second large packaging per product, an admin-editable shop record, and the disk-cleanup confirmation) remain open and still block nothing.
+
+#### Handoff notes
+
+- **Do not mark Phase 8 complete from a laptop.** Two of its deliverables are physical. The table says `In progress` on purpose, and the more cautious reading is the authoritative one.
+- **`isolation-pass.e2e-spec.ts`'s `COVERAGE` map is a tripwire, not documentation.** When a later phase adds a model with a `businessId`, that test fails. The fix is to write the isolation test and then name where it lives — never to add the name alone.
+- **`it.each` tables in that file hold thunks for a reason**, written down at the call site. Anything added there must follow, or it will pass against `undefined` ids.
+- **The idempotency key rule on both phone screens is: mint once per cart, reuse on retry, discard on success or on edit.** If a third screen ever writes something, it gets the same rule — and the edit clause is the half that is easy to leave out.
+- **`AuditService.record` takes a transaction client.** `BranchesService.create` now uses it, like everything else that audits. An audit line for a record that was never created is worse than no line.
+- **The dev server on :3001 was stopped and not restarted.**
+
+
+### §8a — A shippable APK, and updates over the air (2026-08-25)
+
+**Status:** Configured and verified locally; **no cloud build or update has been published yet** — both need the owner's Expo account. **Date:** 2026-08-25.
+
+**The ask:** an APK that can be handed to somebody who is not a developer and works when they install it, and a way to push a JavaScript fix to that APK without asking a shopkeeper to sideload anything.
+
+#### What was missing
+
+Three separate gaps, only one of which was about Expo:
+
+1. **No over-the-air capability at all.** `expo-updates` was not installed, `app.json` had no `updates` block and no `runtimeVersion`, and no profile carried a `channel` — the deliberate Phase 1 omission recorded in §1b, which that section flagged as worth revisiting *at Phase 8*. This is that revisit.
+2. **No API address for cloud builds.** `EXPO_PUBLIC_SHOPREX_API_BASE_URL` is inlined by Metro at bundle time and `mobile/.env` is never uploaded, so a `preview` build would have shipped with an empty base URL and died at startup on `MissingApiBaseUrlError`. Correct behaviour by design, but not a distributable app.
+3. **No installable release profile.** `production` builds an app bundle, which Android cannot sideload.
+
+#### The profile and channel model
+
+Chosen by the owner: the pilot shop sits on `production`, developers and QA on `staging`. A bad merge therefore reaches a developer's pocket, not a shop's till.
+
+| Git branch | Channel | Profile | Output | Who holds it |
+|---|---|---|---|---|
+| `allord-dev` / `yosia-dev` | — | `development` | APK, dev client | Metro over Wi-Fi; no updates needed |
+| `staging` | `staging` | `preview` | Standalone APK, internal | Developers and QA |
+| `production` | `production` | `pilot` | Standalone APK, internal | The pilot shop |
+| `production` | `production` | `production` | AAB | Play Store, still much later |
+
+`pilot` `extends` `preview` and only overrides the channel and environment, so the sideloadable APK reaches the `production` channel without disturbing the AAB profile that §1b reserved for a Play submission.
+
+#### Two facts that shaped every decision
+
+- **`eas update` publishes the working tree, not a git branch.** EAS Update has its own "branches", unrelated to git's despite the shared word. Publishing to the EAS branch `staging` uploads whatever JavaScript is on disk. So the workflow is merge → run the suite → **check the branch out** → publish. The git branch is what gets verified; the checkout is what makes the publish match it. This is the single most misreadable part of the whole mechanism and it is written down in both READMEs.
+- **`EXPO_PUBLIC_*` is inlined, so an update carries the API address with it.** Publishing from a laptop whose `.env` holds a LAN IP would silently repoint every pilot phone at that laptop. The `update:*` scripts pin `--environment` for exactly this reason; a bare `eas update` must never be run.
+
+#### Why `runtimeVersion` uses the fingerprint policy
+
+`runtimeVersion` is what stops an update reaching a binary that cannot run it. The `fingerprint` policy hashes the native project, so adding a native module automatically makes older binaries ineligible. The alternative, `appVersion`, works only if a human remembers to bump `version` on every native change — and §7a is a recorded instance of exactly that being forgotten, where a `barcodeTypes` change silently required a rebuild that nobody had flagged. Automatic beats remembered when the consequence lands on a till.
+
+The consequence is worth stating plainly: **a native change fails safe rather than loudly.** Old phones stop being offered updates instead of downloading one that crashes on a module that is not there. If a publish appears to reach nobody, a changed fingerprint is the first thing to check.
+
+#### `versionCode`, which had never been set
+
+`eas.json` sets `appVersionSource: "local"` and `app.json` carried no `android.versionCode`, so every APK ever built would have been version 1. Android refuses to install a build over one it considers newer, and identical version codes make "which build is on this phone?" unanswerable. It is now `1` explicitly and must be bumped by hand for each APK handed out. Updates do not use it.
+
+#### `mobile/android/` was deleted
+
+It was untracked build output left over from before the Duka→Shoprex rename: `build.gradle` still declared `applicationId 'tz.duka.dukamobile'` against `app.json`'s `tz.shoprex.shoprexmobile`, so any local `npm run android` would have built the wrong package. Under the fingerprint policy it was worse than merely stale — `@expo/fingerprint` hashes that directory, so a local `eas update` would have computed a different runtime version than EAS Build does, and updates would have silently stopped being served. Regenerable at any time with `npm run prebuild`; EAS was never affected, since it prebuilds fresh in the cloud.
+
+#### Files changed
+
+**`mobile/` — edited:**
+- `package.json` — `expo-updates ~57.0.17`; `build:pilot`, `update:staging`, `update:production` scripts
+- `app.json` — `runtimeVersion` (fingerprint), `updates.url`, `android.versionCode`
+- `eas.json` — `channel` on every profile, `environment` on the standalone ones, new `pilot` profile
+- `README.md` — a *Distribution and updates* section: channel table, the after-a-merge decision table, the working-tree caveat, the environment-variable placement
+
+**Repository docs — edited:** `README.md` (§4), `.env.example` (`[MOBILE]`), `PROGRESS.md` (§1b superseded, this section).
+
+**No application code was touched.** `expo-updates` needs no import, provider, or screen, so the mobile suite is unchanged at **226 passing**, and `npm run typecheck` is clean.
+
+#### Manual testing
+
+**Feature 1 — Handing somebody a working APK** *(must pass)*
+
+1. In the EAS dashboard, open `shoprex-mobile` → **Environment variables**. Create `EXPO_PUBLIC_SHOPREX_API_BASE_URL` in environment **`production`**, visibility **Plain text**, value the live `https://…/api/v1`. → It appears in the list against `production`.
+2. Repeat for environment **`preview`** with the staging address. → Two entries, same name, different environments.
+3. `cd mobile && npx eas-cli env:list --environment production`. → Prints the name and value you just set. If the name is misspelled the app cannot find it, and this is the cheapest place to notice.
+4. `npm run build:pilot`. → A cloud build starts and ends with a link and a QR code. First run will ask to generate an Android keystore — **yes**, and EAS keeps it.
+5. Open the link on the phone and install. → Android asks permission to install from this source. Allow it.
+6. Open Shoprex. → The **enrol** screen, not a crash and not `MissingApiBaseUrlError`. A crash here means step 1 or 3 is wrong.
+7. Enrol with a code from the owner console, sign in, sell one item by scanning it. → The item lands in the cart at its price. **This is the first time `expo-camera` has run for real** — it is mocked in all 226 tests.
+
+**Feature 2 — A fix reaching a phone without a reinstall** *(must pass)*
+
+1. Change something visible on a screen — a label is enough. Do not touch a native dependency.
+2. `npm run update:production`. → The command names branch `production` and prints an update id.
+3. `npx eas-cli channel:view production`. → Shows that channel pointing at the update just published.
+4. Force-close the app on the phone, open it. → Looks unchanged; the download happens in the background.
+5. Close and open it again. → **The change is there, with no reinstall.** Updates apply on the *next* launch, so one restart of lag is correct behaviour, not a fault — a bundle never swaps under a half-finished sale.
+
+**Feature 3 — A native change is refused, not crashed** *(worth a look)*
+
+1. Add any native dependency and `npm run update:production` without building. → Either the CLI warns about the fingerprint, or the phone never picks the update up.
+2. Open the app on the phone. → **It still works, on the old bundle.** Being ignored is the correct outcome; a phone that downloaded this would crash on a module that is not in its binary.
+
+**No automated coverage at all:** every one of the above. Builds, channels, updates, and the fingerprint gate are cloud behaviour that no test in this repository can reach, and `expo-camera` remains mocked. Feature 2 is the one to run first — it is the whole reason this section exists, and until it has been walked once, "we can push a fix to the shop" is a claim rather than a fact.
+
+#### Decisions made
+
+| Question | Answer |
+|---|---|
+| EAS Update, or Play internal testing, or APK by hand? | **EAS Build + EAS Update.** Play internal testing needs an AAB, a paid account, and testers with Play accounts invited by email — wrong shape for "send somebody an APK", though right later. Handing out APKs by hand makes every JavaScript fix a sideload walkthrough over a metered connection, which is the specific thing a pilot shop should never be asked to do |
+| Which channel does the pilot sit on? | **`production`.** Developers and QA carry `staging` and see a merge as soon as it is green; the shop sees only what somebody deliberately released |
+| Should a merge publish automatically? | **No.** No CI exists, and during a pilot a human should decide when a shop's till changes. `eas update` is a command somebody runs |
+| A third non-personal branch (`development`)? | **No — four branches stand.** The gate it would add already exists: nothing publishes on merge, so a broken integration on `staging` reaches no phone until somebody publishes. With two developers `development` and `staging` would be identical almost always. **Revisit when QA is a person who is not Allord or Yosia** — at that point it touches `AGENT.md` and `CLAUDE.md` and nothing in `eas.json`, since it would carry no channel |
+| Where does the API address live for cloud builds? | **EAS environment variables**, `preview` and `production`, set by the owner in the dashboard. Plaintext, not secret: `EXPO_PUBLIC_*` is inlined into the bundle and readable by anyone holding the APK, so marking it secret hides it from the team and from nobody else |
+
+#### Known issues / risks
+
+1. **Nothing here has been run against EAS.** Every change is configuration verified locally by typecheck and the suite. Whether the `pilot` profile builds, whether the channel wiring is right, and whether an update actually lands are all unproven until somebody with the Expo account runs *Manual testing* above. This is the same limit §1b recorded, and it has not moved.
+2. **The address must be `https://`.** A release APK on Android 9+ refuses cleartext HTTP, so the LAN `http://` addresses that work all through development will fail on a pilot phone. The failure will look like a network error, not a configuration error.
+3. **The 8-hour JWT has no refresh token.** A pilot phone signs its worker out roughly once a shift and returns silently to sign-in. Untouched here because it is a backend decision, but it is a real "does it just work" issue for a shop and belongs in the pilot feedback log if it bites.
+4. **No in-app sign that an update is coming.** `expo-updates` handles the download natively with no UI. A seller sees a change appear after a restart with no explanation. Deliberate — adding an affordance was not asked for — but worth revisiting if the shop finds it confusing.
+5. **Distribution still depends on one Expo account.** `npx eas-cli login` is interactive and tied to `kakaallord`, so only the owner can build or publish. Unchanged from §1b, and now it gates fixes reaching a shop rather than just builds reaching a developer.
+
+#### Blocked / awaiting user
+
+| # | Blocker | Why it matters |
+|---|---|---|
+| 1 | **The backend must be deployed somewhere public, over HTTPS, before any of this is useful.** No hosting exists — `docker-compose.yml` runs PostgreSQL only, there is no Dockerfile and no CI, and every configured address is `localhost` or a LAN IP | An APK is only as installable as the server it points at. This is the same unanswered question as §8 blocker 3 ("where will the pilot be hosted") seen from the phone's side, and it is now the single thing standing between this configuration and a working pilot |
+| 2 | **The owner must set the two EAS environment variables and run the first `pilot` build** | Both need the Expo account. Steps are Feature 1 above |
+
+#### Handoff notes
+
+- **`expo-updates` cannot be added to an APK that is already in somebody's hands.** It is a native module and has to be in the binary. That is why it went in *before* the pilot APK ships — if a phone is given a build without it, over-the-air updates for that phone are impossible until it is reinstalled by hand.
+- **Never run a bare `eas update`.** It re-inlines `EXPO_PUBLIC_SHOPREX_API_BASE_URL` from whatever environment the command resolves, and a laptop's LAN address published to the pilot channel would take a shop offline with no obvious cause. The npm scripts exist so nobody has to remember the flag.
+- **Channels do not cross.** A development build never receives a `staging` update, so it cannot rehearse what QA is about to get — it tests the code but never the delivery. Somebody should carry a `preview` APK alongside their dev client.
+- **`mobile/android/` no longer exists and should not be restored by hand.** `npm run prebuild` regenerates it correctly from `app.json`; the deleted copy carried the pre-rename package id and would have poisoned the fingerprint.
+- **Bump `android.versionCode` before each APK handed out.** Nothing enforces it, and forgetting produces two different builds both claiming to be version 1.

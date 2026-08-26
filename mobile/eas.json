@@ -7,17 +7,27 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "channel": "development",
       "android": {
         "buildType": "apk"
       }
     },
     "preview": {
       "distribution": "internal",
+      "channel": "staging",
+      "environment": "preview",
       "android": {
         "buildType": "apk"
       }
     },
+    "pilot": {
+      "extends": "preview",
+      "channel": "production",
+      "environment": "production"
+    },
     "production": {
+      "channel": "production",
+      "environment": "production",
       "android": {
         "buildType": "app-bundle"
       }

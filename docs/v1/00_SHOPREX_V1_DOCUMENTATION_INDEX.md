@@ -30,6 +30,7 @@ There must be exactly three application folders at the root: `backend/`, `web/`,
 | 4 | `docs/02_SHOPREX_V1_ENGINE_AND_MATH.md` | Internal technical rules for products, units, stock, sales, payments, and devices |
 | 5 | `docs/03_SHOPREX_V1_IMPLEMENTATION_PHASES.md` | Build order, deliverables, acceptance checks, and deferred scope |
 | 6 | `docs/04_AGENT_PROMPT_KIT.md` | Copy-paste prompts for first setup, phase execution, debugging, and handover |
+| 7 | `docs/05_SHOPREX_V1_PILOT_FEEDBACK_LOG.md` | What real shops said when they used it, and what was done about it. Added in Phase 8 |
 
 ## Current product rule
 

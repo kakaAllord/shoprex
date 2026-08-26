@@ -14,6 +14,7 @@ import { BusinessesModule } from './modules/businesses/businesses.module';
 import { DevicesModule } from './modules/devices/devices.module';
 import { PaymentMethodsModule } from './modules/payments/payment-methods.module';
 import { ProductsModule } from './modules/products/products.module';
+import { ReportsModule } from './modules/reports/reports.module';
 import { SalesModule } from './modules/sales/sales.module';
 import { StockModule } from './modules/stock/stock.module';
 import { UsersModule } from './modules/users/users.module';
@@ -64,6 +65,7 @@ import { HealthModule } from './modules/health/health.module';
     StockModule,
     PaymentMethodsModule,
     SalesModule,
+    ReportsModule,
     HealthModule,
   ],
   providers: [

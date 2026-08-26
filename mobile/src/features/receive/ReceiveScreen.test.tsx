@@ -86,6 +86,7 @@ function renderReceive(fetchFn: typeof fetch, overrides: Record<string, unknown>
     <ReceiveScreen
       apiClient={new ApiClient({ baseUrl, fetchFn })}
       branchId="branch-1"
+      deviceId="device-1"
       onBack={jest.fn()}
       onOpenStock={jest.fn()}
       onSessionOver={jest.fn()}
@@ -368,9 +369,14 @@ describe('recording the delivery', () => {
     expect(posted[0].url).toContain('/branches/branch-1/stock-receipts');
     // Six Cartons, not thirty-six Pieces — doc 02 §5. The backend does the
     // normalizing and snapshots it.
-    expect(posted[0].body).toEqual({
-      lines: [{ productId: 'coke', productUnitId: 'carton', quantity: 6 }],
-    });
+    expect((posted[0].body as Record<string, unknown>).lines).toEqual([
+      { productId: 'coke', productUnitId: 'carton', quantity: 6 },
+    ]);
+    // Phase 8: every delivery carries a key, so a retry cannot receive the
+    // same crate twice.
+    expect(String((posted[0].body as Record<string, unknown>).idempotencyKey)).toContain(
+      'device-1',
+    );
   });
 
   it('omits a cost nobody recorded rather than sending zero', async () => {
@@ -493,6 +499,7 @@ describe('recording the delivery', () => {
       <ReceiveScreen
         apiClient={new ApiClient({ baseUrl, fetchFn: stubBackend({}).fetchFn })}
         branchId="branch-1"
+        deviceId="device-1"
         onBack={jest.fn()}
         onOpenStock={null}
         onSessionOver={jest.fn()}
@@ -500,5 +507,102 @@ describe('recording the delivery', () => {
     );
 
     expect(screen.queryByTestId('receive-open-stock')).toBeNull();
+  });
+});
+
+/**
+ * Phase 8 — a delivery that fails on a bad connection.
+ *
+ * The mirror of `SaleScreen`'s retry tests, and for the same reason. Until
+ * Phase 8 the route carried no idempotency key at all: a stock keeper whose
+ * response was lost had no safe move, because pressing Hifadhi again put the
+ * whole lorry into stock a second time.
+ */
+describe('a delivery that fails on a bad connection', () => {
+  /** Fails the first POST /stock-receipts outright, then answers the retry. */
+  function flakyBackend() {
+    const sent: Array<{ url: string; body: unknown }> = [];
+    let attempts = 0;
+
+    const fetchFn = jest.fn(async (url: string, init?: { body?: string }) => {
+      const parsed = init?.body ? JSON.parse(init.body) : undefined;
+
+      sent.push({ url: String(url), body: parsed });
+
+      if (String(url).includes('/stock-receipts')) {
+        attempts += 1;
+
+        if (attempts === 1) {
+          throw new TypeError('Network request failed');
+        }
+
+        return { status: 201, text: async () => JSON.stringify(receipt) };
+      }
+
+      return { status: 200, text: async () => JSON.stringify([coke]) };
+    }) as unknown as typeof fetch;
+
+    const deliveries = () => sent.filter((request) => request.url.includes('/stock-receipts'));
+
+    return { fetchFn, sent, deliveries };
+  }
+
+  const fillBasket = async () => {
+    await search('cola');
+    fireEvent.press(screen.getByTestId('receive-result-coke'));
+    fireEvent.press(screen.getByTestId('receive-unit-choice-carton'));
+    fireEvent.changeText(screen.getByTestId('basket-quantity-carton'), '6');
+  };
+
+  it('retries with the very same key, so the crate is not received twice', async () => {
+    const { fetchFn, deliveries } = flakyBackend();
+
+    renderReceive(fetchFn);
+    await fillBasket();
+
+    fireEvent.press(screen.getByTestId('receive-save'));
+    await waitFor(() => expect(screen.getByTestId('receive-error')).toBeTruthy());
+
+    fireEvent.press(screen.getByTestId('receive-save'));
+    await waitFor(() => expect(deliveries()).toHaveLength(2));
+
+    const [first, second] = deliveries().map(
+      (request) => (request.body as Record<string, unknown>).idempotencyKey,
+    );
+
+    expect(first).toBeTruthy();
+    expect(second).toBe(first);
+  });
+
+  it('tells the stock keeper that pressing again is safe', async () => {
+    const { fetchFn } = flakyBackend();
+
+    renderReceive(fetchFn);
+    await fillBasket();
+
+    fireEvent.press(screen.getByTestId('receive-save'));
+    await waitFor(() => expect(screen.getByTestId('receive-error')).toBeTruthy());
+
+    expect(screen.getByText(/hautapokelewa mara mbili/)).toBeTruthy();
+  });
+
+  it('abandons the key once the basket is edited, because that is a different delivery', async () => {
+    const { fetchFn, deliveries } = flakyBackend();
+
+    renderReceive(fetchFn);
+    await fillBasket();
+
+    fireEvent.press(screen.getByTestId('receive-save'));
+    await waitFor(() => expect(screen.getByTestId('receive-error')).toBeTruthy());
+
+    const failedKey = (deliveries()[0].body as Record<string, unknown>).idempotencyKey;
+
+    // Two more cartons turned up than were first counted.
+    fireEvent.changeText(screen.getByTestId('basket-quantity-carton'), '8');
+    fireEvent.press(screen.getByTestId('receive-save'));
+
+    await waitFor(() => expect(deliveries()).toHaveLength(2));
+
+    expect((deliveries()[1].body as Record<string, unknown>).idempotencyKey).not.toBe(failedKey);
   });
 });

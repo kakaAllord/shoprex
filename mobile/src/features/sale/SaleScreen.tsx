@@ -33,9 +33,9 @@ import {
   toSaleLines,
 } from '../../domain/cart';
 import { PaymentMethod } from '../../domain/payment';
-import { NewProductSheet } from './NewProductSheet';
+import { NewProductSheet } from '../../components/NewProductSheet';
 import { PaymentSheet } from './PaymentSheet';
-import { ScannerSheet } from './ScannerSheet';
+import { ScannerSheet } from '../../components/ScannerSheet';
 
 /**
  * Mauzo — the screen the whole product is for.
@@ -90,7 +90,33 @@ export function SaleScreen({
 
   const saleCounter = useRef(0);
 
+  /**
+   * The idempotency key for the cart currently being paid for.
+   *
+   * Minted once, on the first attempt, and **deliberately reused by every
+   * retry** — that is the entire point of the key, and it is the only thing
+   * standing between a dropped response and a customer being charged twice.
+   * The backend answers a repeated key with the sale the first attempt
+   * created, so a seller who taps Lipa again after "the sale could not be
+   * completed" gets the original receipt rather than a second sale.
+   *
+   * It is cleared on success, and by the effect below whenever the cart
+   * changes — see there for why.
+   */
+  const pendingKey = useRef<string | null>(null);
+
   const total = cartTotalTzs(cart);
+
+  // A changed cart is a different sale, not a retry of the previous one.
+  //
+  // Reusing the key across an edit would be worse than minting a new one: the
+  // backend would answer with the sale the first attempt created and the item
+  // just added would vanish from a receipt the seller watched themselves
+  // build. Retrying an *unchanged* cart is the case the key exists for, and
+  // that path does not come through here.
+  useEffect(() => {
+    pendingKey.current = null;
+  }, [cart]);
 
   const handleApiError = useCallback(
     (caught: unknown, fallback: string): string => {
@@ -213,20 +239,31 @@ export function SaleScreen({
     setSaleError(null);
 
     try {
-      saleCounter.current += 1;
+      if (pendingKey.current === null) {
+        saleCounter.current += 1;
+        pendingKey.current = newIdempotencyKey(deviceId, saleCounter.current);
+      }
 
       const sale = await apiClient.completeSale(branchId, {
-        idempotencyKey: newIdempotencyKey(deviceId, saleCounter.current),
+        idempotencyKey: pendingKey.current,
         lines: toSaleLines(cart),
         payments: payments as never,
       });
 
+      pendingKey.current = null;
       setCart(emptyCart);
       setPaymentOpen(false);
       onDone(sale);
     } catch (caught) {
+      // The key is left standing on purpose. Whatever went wrong — the network
+      // died, the request timed out, the backend faulted — the phone cannot
+      // tell whether the sale committed, and pressing Lipa again must ask the
+      // same question rather than a new one.
       setSaleError(
-        handleApiError(caught, 'Mauzo hayajakamilika · The sale could not be completed'),
+        handleApiError(
+          caught,
+          'Mauzo hayajakamilika · The sale could not be completed. Bonyeza Lipa tena — hakitauzwa mara mbili.',
+        ),
       );
     } finally {
       setCompleting(false);

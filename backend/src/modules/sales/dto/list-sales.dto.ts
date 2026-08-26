@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString, IsUUID, Matches, Max, Min } from 'class-validator';
 
 export const SALES_PAGE_DEFAULT = 50;
 export const SALES_PAGE_MAX = 100;
@@ -34,4 +34,15 @@ export class ListSalesDto {
   @IsOptional()
   @IsUUID()
   cursor?: string;
+
+  @ApiPropertyOptional({
+    example: '2026-08-21',
+    pattern: '^\\d{4}-\\d{2}-\\d{2}$',
+    description:
+      'Narrow the list to one **shop-local** calendar day. The boundary is resolved by the same code the daily report uses — `Business.timezone` and the backend clock — so a sale counted in the report’s totals is exactly a sale listed here for that date. Omit it for every sale in the branch, newest first.',
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date must be written as YYYY-MM-DD' })
+  date?: string;
 }

@@ -1,8 +1,10 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+import { AuditAction, UserRole } from '@prisma/client';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../database/prisma.service';
 import { requireBusiness } from '../../common/tenancy';
+import { AuditService } from '../audit/audit.service';
+import { actorFrom } from '../users/users.service';
 import { CreateBranchDto } from './dto/create-branch.dto';
 
 export interface BranchView {
@@ -15,8 +17,25 @@ export interface BranchView {
 
 @Injectable()
 export class BranchesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
+  /**
+   * Adds a branch to the caller's own business.
+   *
+   * The creation is audited, which it was not before Phase 8's audit review:
+   * `AuditAction.BRANCH_CREATED` had been declared in the schema since Phase 1
+   * and no code ever wrote one. Opening a second shopfront is exactly the kind
+   * of thing an owner later asks "who did that, and when" about — and a
+   * declared action nobody records is worse than no action at all, because the
+   * empty log reads as proof that nothing happened.
+   *
+   * Both writes share one transaction, the same rule the rest of the codebase
+   * follows: an audit line for a branch that was never created would be worse
+   * than no line.
+   */
   async create(principal: AuthenticatedUser, dto: CreateBranchDto): Promise<BranchView> {
     const businessId = requireBusiness(principal);
     const name = dto.name.trim();
@@ -27,7 +46,24 @@ export class BranchesService {
       throw new ConflictException('A branch with that name already exists');
     }
 
-    return this.prisma.branch.create({ data: { businessId, name } });
+    return this.prisma.$transaction(async (tx) => {
+      const branch = await tx.branch.create({ data: { businessId, name } });
+
+      await this.audit.record(
+        actorFrom(principal),
+        {
+          businessId,
+          branchId: branch.id,
+          action: AuditAction.BRANCH_CREATED,
+          targetType: 'Branch',
+          targetId: branch.id,
+          summary: `Tawi "${branch.name}" limefunguliwa · Branch "${branch.name}" created`,
+        },
+        tx,
+      );
+
+      return branch;
+    });
   }
 
   /**

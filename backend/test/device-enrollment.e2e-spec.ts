@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { DeviceStatus, PrismaClient, UserPermission } from '@prisma/client';
 import request from 'supertest';
 import { AllExceptionsFilter } from '../src/common/filters/all-exceptions.filter';
+import { enrollmentQrSvg } from '../src/domain/enrollment-qr';
 import { hashEnrollmentCode } from '../src/domain/enrollment-token';
 
 /**
@@ -45,6 +46,7 @@ describe('Device enrollment, shared sign-in, and revocation (e2e)', () => {
     return response.body as {
       enrollmentId: string;
       code: string;
+      qrSvg: string;
       expiresAt: string;
       deviceName: string;
       branchId: string;
@@ -230,6 +232,65 @@ describe('Device enrollment, shared sign-in, and revocation (e2e)', () => {
         .send({ branchId: counterBranchId })
         .expect(400);
     });
+
+    /**
+     * The QR exists so two people standing together do not have to read a
+     * secret aloud. What makes it safe to offer as an alternative rather than
+     * as a second mechanism is that it carries the *same string* — so there is
+     * one redemption path, not two.
+     */
+    it('draws the code as a scannable QR alongside it', async () => {
+      const issued = await issueCode(counterBranchId, 'Simu ya QR');
+
+      expect(issued.qrSvg).toContain('<svg');
+      expect(issued.qrSvg).toContain('</svg>');
+      // Inline in the console: nothing for a browser to go and fetch.
+      expect(issued.qrSvg).not.toContain('<image');
+      expect(issued.qrSvg).not.toContain('<script');
+    });
+
+    it('gives a different phone a different symbol', async () => {
+      const [first, second] = [
+        await issueCode(counterBranchId, 'Simu A'),
+        await issueCode(counterBranchId, 'Simu B'),
+      ];
+
+      expect(first.code).not.toBe(second.code);
+      expect(first.qrSvg).not.toBe(second.qrSvg);
+    });
+
+    /**
+     * The QR is the code, not a picture about it — so it is subject to the
+     * same "shown once" rule, and the audit log must not have quietly gained a
+     * copy of the secret in image form.
+     */
+    it('keeps the QR out of the audit log, exactly like the code', async () => {
+      const issued = await issueCode(counterBranchId, 'Simu ya ukaguzi');
+
+      const events = await prisma.auditEvent.findMany({
+        where: { action: 'DEVICE_ENROLLMENT_ISSUED' },
+        select: { summary: true },
+      });
+
+      expect(events.length).toBeGreaterThan(0);
+
+      for (const event of events) {
+        expect(event.summary).not.toContain(issued.code);
+        expect(event.summary).not.toContain('<svg');
+      }
+    });
+
+    it('stores only the hash — neither the code nor its picture is persisted', async () => {
+      const issued = await issueCode(counterBranchId, 'Simu ya hifadhi');
+
+      const row = await prisma.deviceEnrollmentToken.findUnique({
+        where: { id: issued.enrollmentId },
+      });
+
+      expect(row).not.toBeNull();
+      expect(JSON.stringify(row)).not.toContain(issued.code);
+      expect(JSON.stringify(row)).not.toContain('<svg');
+    });
   });
 
   describe('a phone redeems the code', () => {
@@ -325,6 +386,102 @@ describe('Device enrollment, shared sign-in, and revocation (e2e)', () => {
 
       expect(spent?.usedAt).toBeNull();
       expect(spent?.deviceId).toBeNull();
+    });
+  });
+
+  /**
+   * Phase 8's named deliverable: **QR enrollment expiry tests**.
+   *
+   * §7a added the QR and proved it a faithful rendering of the code. What
+   * nobody had yet written down is that the QR is bound by the *same* expiry —
+   * and the reason it is worth a test rather than an assertion is that it
+   * would be entirely natural to build it the other way. A QR is a picture; it
+   * looks like a convenience rather than a credential, and a printed one
+   * pinned to a wall is exactly the artefact somebody would expect to keep
+   * working. It must not, and these prove it does not.
+   */
+  describe('the QR expires with the code, because it is the code', () => {
+    it('draws the identical string the typed path submits', async () => {
+      const issued = await issueCode(counterBranchId, 'Simu ya QR', 5);
+
+      // Re-encode the code we were handed with the same options the backend
+      // uses. Byte-identical output means the symbol on screen carries that
+      // code and nothing else — no URL, no JSON, no server address — so the
+      // scanned and typed paths cannot diverge.
+      expect(issued.qrSvg).toBe(await enrollmentQrSvg(issued.code));
+    });
+
+    it('refuses the scanned string once the expiry has passed', async () => {
+      const issued = await issueCode(counterBranchId, 'Simu ya QR iliyopita', 5);
+
+      expect(issued.qrSvg).toBe(await enrollmentQrSvg(issued.code));
+
+      await prisma.deviceEnrollmentToken.update({
+        where: { id: issued.enrollmentId },
+        data: { expiresAt: new Date(Date.now() - 1_000) },
+      });
+
+      // The very string the camera would have read.
+      await api().post('/api/v1/devices/enroll').send({ code: issued.code }).expect(401);
+
+      const spent = await prisma.deviceEnrollmentToken.findUniqueOrThrow({
+        where: { id: issued.enrollmentId },
+      });
+
+      expect(spent.usedAt).toBeNull();
+      expect(spent.deviceId).toBeNull();
+      expect(await prisma.device.count({ where: { name: 'Simu ya QR iliyopita' } })).toBe(0);
+    });
+
+    it('refuses a scanned code that was already redeemed by somebody typing it', async () => {
+      // One code, two ways in, **one** redemption. A QR left on screen after
+      // the phone beside it has already been enrolled must not enrol a second.
+      const issued = await issueCode(counterBranchId, 'Simu ya QR mara mbili', 5);
+
+      await api().post('/api/v1/devices/enroll').send({ code: issued.code }).expect(200);
+      await api().post('/api/v1/devices/enroll').send({ code: issued.code }).expect(401);
+
+      expect(await prisma.device.count({ where: { name: 'Simu ya QR mara mbili' } })).toBe(1);
+    });
+
+    it('honours a short expiry the owner asked for, rather than the default', async () => {
+      const issued = await issueCode(counterBranchId, 'Simu ya dakika tano', 5);
+      const minutes = (new Date(issued.expiresAt).getTime() - Date.now()) / 60_000;
+
+      // Five minutes, from the backend clock — not the hour the default gives.
+      expect(minutes).toBeGreaterThan(4);
+      expect(minutes).toBeLessThanOrEqual(5.5);
+    });
+
+    it('refuses an expiry outside the configured range rather than clamping it', async () => {
+      // Silently clamping would hand back a code that lives far longer than
+      // the owner believed they asked for, which is the wrong way for a
+      // secret's lifetime to be wrong.
+      await api()
+        .post('/api/v1/devices/enrollments')
+        .set(authed(ownerToken))
+        .send({ branchId: counterBranchId, deviceName: 'Simu ya milele', expiresInMinutes: 100_000 })
+        .expect(400);
+
+      await api()
+        .post('/api/v1/devices/enrollments')
+        .set(authed(ownerToken))
+        .send({ branchId: counterBranchId, deviceName: 'Simu ya papo hapo', expiresInMinutes: 0 })
+        .expect(400);
+    });
+
+    it('never persists the symbol, only the hash — so an expired QR is unrecoverable', async () => {
+      const issued = await issueCode(counterBranchId, 'Simu isiyohifadhiwa', 5);
+
+      const stored = await prisma.deviceEnrollmentToken.findUniqueOrThrow({
+        where: { id: issued.enrollmentId },
+      });
+
+      const asText = JSON.stringify(stored);
+
+      expect(asText).not.toContain('svg');
+      expect(asText).not.toContain(issued.code);
+      expect(stored.tokenHash).toBe(hashEnrollmentCode(issued.code));
     });
   });
 

@@ -639,4 +639,153 @@ describe('Receiving stock (e2e)', () => {
       expect((await stockOf(short.body.id, keeperToken)).normalizedQuantity).toBe(7);
     });
   });
+  /**
+   * Phase 8 — a delivery retried on a bad connection.
+   *
+   * The network a pilot shop runs on drops responses, not requests: the crate
+   * is already on the shelf and the phone never hears so. Until Phase 8 this
+   * route carried no idempotency key at all, so a stock keeper who pressed
+   * Hifadhi again received the whole lorry a second time — and there is no way
+   * in V1 to correct a saved delivery.
+   */
+  describe('6 — a retry on a bad connection does not receive it twice', () => {
+    const nextKey = (() => {
+      let n = 0;
+
+      return () => `receive-retry-${(n += 1)}-${Date.now()}`;
+    })();
+
+    const delivery = (idempotencyKey: string, quantity = 3) => ({
+      idempotencyKey,
+      lines: [{ productId: cokeId, productUnitId: cartonId, quantity }],
+    });
+
+    it('returns the original receipt for a repeated key', async () => {
+      const key = nextKey();
+
+      const first = await api()
+        .post(`/api/v1/branches/${branchId}/stock-receipts`)
+        .set(authed(keeperToken))
+        .send(delivery(key))
+        .expect(201);
+
+      const retry = await api()
+        .post(`/api/v1/branches/${branchId}/stock-receipts`)
+        .set(authed(keeperToken))
+        .send(delivery(key))
+        .expect(201);
+
+      expect(retry.body.id).toBe(first.body.id);
+      expect(await prisma.stockReceipt.count({ where: { idempotencyKey: key } })).toBe(1);
+    });
+
+    it('puts the stock on the shelf exactly once', async () => {
+      const key = nextKey();
+      const before = (await stockOf(cokeId)).normalizedQuantity;
+
+      await api()
+        .post(`/api/v1/branches/${branchId}/stock-receipts`)
+        .set(authed(keeperToken))
+        .send(delivery(key))
+        .expect(201);
+      await api()
+        .post(`/api/v1/branches/${branchId}/stock-receipts`)
+        .set(authed(keeperToken))
+        .send(delivery(key))
+        .expect(201);
+
+      // Three Cartons of six, once — not twice.
+      expect((await stockOf(cokeId)).normalizedQuantity).toBe(before + 18);
+    });
+
+    it('writes one stock movement and one audit line, not two', async () => {
+      const key = nextKey();
+
+      const first = await api()
+        .post(`/api/v1/branches/${branchId}/stock-receipts`)
+        .set(authed(keeperToken))
+        .send(delivery(key))
+        .expect(201);
+
+      await api()
+        .post(`/api/v1/branches/${branchId}/stock-receipts`)
+        .set(authed(keeperToken))
+        .send(delivery(key))
+        .expect(201);
+
+      expect(
+        await prisma.stockMovement.count({
+          where: { sourceType: 'StockReceipt', sourceId: first.body.id },
+        }),
+      ).toBe(1);
+      expect(
+        await prisma.auditEvent.count({
+          where: { action: 'STOCK_RECEIVED', targetId: first.body.id },
+        }),
+      ).toBe(1);
+    });
+
+    it('collapses two identical deliveries racing each other onto one receipt', async () => {
+      // The check-then-insert above is the cheap path. This is the one the
+      // unique index has to catch, because neither request sees the other's
+      // row when it looks.
+      const key = nextKey();
+      const before = (await stockOf(cokeId)).normalizedQuantity;
+
+      const [a, b] = await Promise.all([
+        api()
+          .post(`/api/v1/branches/${branchId}/stock-receipts`)
+          .set(authed(keeperToken))
+          .send(delivery(key)),
+        api()
+          .post(`/api/v1/branches/${branchId}/stock-receipts`)
+          .set(authed(keeperToken))
+          .send(delivery(key)),
+      ]);
+
+      expect(a.status).toBe(201);
+      expect(b.status).toBe(201);
+      expect(a.body.id).toBe(b.body.id);
+      expect(await prisma.stockReceipt.count({ where: { idempotencyKey: key } })).toBe(1);
+      expect((await stockOf(cokeId)).normalizedQuantity).toBe(before + 18);
+    });
+
+    it('refuses a key already used in another branch rather than answering with it', async () => {
+      const key = nextKey();
+
+      await api()
+        .post(`/api/v1/branches/${branchId}/stock-receipts`)
+        .set(authed(keeperToken))
+        .send(delivery(key))
+        .expect(201);
+
+      // Answering with the first branch's receipt would quietly tell this
+      // person that goods reached a shelf they are not standing at.
+      await api()
+        .post(`/api/v1/branches/${otherBranchId}/stock-receipts`)
+        .set(authed(ownerToken))
+        .send(delivery(key))
+        .expect(409);
+    });
+
+    it('still records a delivery sent without a key at all', async () => {
+      // The column is nullable on purpose: PostgreSQL treats NULLs as distinct
+      // in a unique index, so a client written before Phase 8 keeps working
+      // and two keyless deliveries never collide with each other.
+      const before = (await stockOf(cokeId)).normalizedQuantity;
+
+      await api()
+        .post(`/api/v1/branches/${branchId}/stock-receipts`)
+        .set(authed(keeperToken))
+        .send({ lines: [{ productId: cokeId, productUnitId: cartonId, quantity: 1 }] })
+        .expect(201);
+      await api()
+        .post(`/api/v1/branches/${branchId}/stock-receipts`)
+        .set(authed(keeperToken))
+        .send({ lines: [{ productId: cokeId, productUnitId: cartonId, quantity: 1 }] })
+        .expect(201);
+
+      expect((await stockOf(cokeId)).normalizedQuantity).toBe(before + 12);
+    });
+  });
 });

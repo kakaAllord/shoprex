@@ -7,6 +7,7 @@ import { DeviceLoginScreen } from '../features/auth/DeviceLoginScreen';
 import { EnrollScreen } from '../features/enroll/EnrollScreen';
 import { HealthScreen } from '../features/health/HealthScreen';
 import { HomeScreen } from '../features/home/HomeScreen';
+import { ProductsScreen } from '../features/products/ProductsScreen';
 import { ReceiveScreen } from '../features/receive/ReceiveScreen';
 import { ReceiptScreen } from '../features/sale/ReceiptScreen';
 import { SaleScreen } from '../features/sale/SaleScreen';
@@ -18,9 +19,10 @@ import { colors, spacing } from './theme';
  * The Shoprex Android app.
  *
  * Navigation is a small piece of state rather than a router. Enrol, sign in,
- * and home are one path; from home the app fans out to three places a shop
- * actually goes — selling, receiving a delivery, and looking at the shelf —
- * each of which returns home and nowhere else. Four native navigation
+ * and home are one path; from home the app fans out to the four places a shop
+ * actually goes — selling, receiving a delivery, looking at the shelf, and the
+ * catalogue — each of which returns home and nowhere else. Four native
+ * navigation
  * dependencies would still buy nothing a `Route` union does not already give.
  * Android's hardware back button is wired to the same state, so "back" means
  * what it looks like it means.
@@ -40,7 +42,8 @@ type Route =
   | { name: 'sale' }
   | { name: 'receipt'; sale: Sale }
   | { name: 'receive' }
-  | { name: 'stock' };
+  | { name: 'stock' }
+  | { name: 'products' };
 
 /**
  * Both are injected by tests and by tests only; the real app builds its own.
@@ -136,7 +139,8 @@ export default function App({
         route.name === 'sale' ||
         route.name === 'receipt' ||
         route.name === 'receive' ||
-        route.name === 'stock'
+        route.name === 'stock' ||
+        route.name === 'products'
       ) {
         setRoute({ name: 'home' });
 
@@ -247,6 +251,7 @@ export default function App({
         <ReceiveScreen
           apiClient={apiClient}
           branchId={profile.branchIds[0] ?? ''}
+          deviceId={deviceId}
           onBack={() => setRoute({ name: 'home' })}
           // Offered only to someone who could actually open it. The backend
           // refuses the read either way; this is about not pointing at a door
@@ -291,6 +296,28 @@ export default function App({
     );
   }
 
+  if (route.name === 'products') {
+    return (
+      <Shell>
+        <ProductsScreen
+          apiClient={apiClient}
+          // The same pair the backend's create route takes, so the button is
+          // offered only to somebody it would actually work for. The backend
+          // refuses either way — this is about not pointing at a shut door.
+          canAdd={
+            profile.role === 'OWNER' ||
+            profile.permissions.includes('SELL') ||
+            profile.permissions.includes('RECEIVE_STOCK')
+          }
+          onBack={() => setRoute({ name: 'home' })}
+          onSessionOver={(message) => {
+            void endSession(message);
+          }}
+        />
+      </Shell>
+    );
+  }
+
   return (
     <Shell>
       <HomeScreen
@@ -298,6 +325,7 @@ export default function App({
         onOpenSale={() => setRoute({ name: 'sale' })}
         onOpenReceive={() => setRoute({ name: 'receive' })}
         onOpenStock={() => setRoute({ name: 'stock' })}
+        onOpenProducts={() => setRoute({ name: 'products' })}
         onSignOut={() => {
           void endSession();
         }}

@@ -1,25 +1,32 @@
 import { useEffect, useState } from 'react';
 import { Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { colors, spacing } from '../../app/theme';
-import { Banner, Card, Field, PrimaryButton, SecondaryButton } from '../../app/ui';
+import { colors, spacing } from '../app/theme';
+import { Banner, Card, Field, PrimaryButton, SecondaryButton } from '../app/ui';
 import { UnitNameField, mergeUnitNames } from './UnitNameField';
-import { ApiClient, Product, ShoprexApiError } from '../../core/api/apiClient';
+import { ApiClient, Product, ShoprexApiError } from '../core/api/apiClient';
 
 /**
- * Adding an item nobody has ever sold before, without leaving the sale.
+ * Adding an item the shop has never recorded before, without leaving whatever
+ * you were doing.
  *
  * Doc 01 §5: Shoprex must not force catalogue setup before a shop can sell.
  * So this asks for exactly three things — what it is, what one is called, and
  * what one costs — and the owner completes the rest later from the web. If a
- * scan was what led here, the barcode is carried in automatically, because the
- * seller has already pointed the camera at it once.
+ * scan was what led here, the barcode is carried in automatically, because
+ * somebody has already pointed the camera at it once.
  *
- * **`requirePrice` is what tells a sale from a delivery.** Selling cannot
- * invent a price, so the sheet insists on one. Putting a box on a shelf does
- * not need one at all — doc 01 §6's progressive enrichment — and demanding it
- * would mean a shop could not shelve an item until somebody decided what to
- * charge for it. Left blank, the product is created unpriced and the backend
- * refuses to sell it until the shop says, which is the honest outcome.
+ * **Three callers, and `requirePrice` is what separates them.** Mauzo passes
+ * it (the default): selling cannot invent a price, so the sheet insists on
+ * one. Pokea mzigo and Bidhaa do not: putting a box on a shelf, or writing
+ * down what the shop now stocks, is doc 01 §6's progressive enrichment, and
+ * demanding a price there would mean a shop could not record an item until
+ * somebody had decided what to charge for it. Left blank, the product is
+ * created unpriced and the backend refuses to sell it until the shop says,
+ * which is the honest outcome rather than a hidden one.
+ *
+ * It lives in `src/components/` rather than under any one of those three
+ * features precisely because it belongs to none of them — see the note on
+ * `ScannerSheet`.
  */
 export function NewProductSheet({
   visible,
