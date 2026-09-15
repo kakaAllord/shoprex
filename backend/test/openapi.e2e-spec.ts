@@ -126,6 +126,7 @@ describe('OpenAPI contract (e2e)', () => {
       // src/domain/day-window.ts, from Business.timezone and the server clock;
       // the PDF is rendered from the very response the first route returns.
       ['/api/v1/branches/{branchId}/reports/daily', 'get'],
+      ['/api/v1/branches/{branchId}/reports/series', 'get'],
       ['/api/v1/branches/{branchId}/reports/daily.pdf', 'get'],
       ['/api/v1/reports/branches', 'get'],
     ];
@@ -192,6 +193,7 @@ describe('OpenAPI contract (e2e)', () => {
       ['/api/v1/payment-methods/{id}', 'patch'],
       ['/api/v1/branches/{branchId}/sales', 'get'],
       ['/api/v1/branches/{branchId}/reports/daily', 'get'],
+      ['/api/v1/branches/{branchId}/reports/series', 'get'],
       ['/api/v1/branches/{branchId}/reports/daily.pdf', 'get'],
       ['/api/v1/reports/branches', 'get'],
     ] as [string, HttpMethod][])(

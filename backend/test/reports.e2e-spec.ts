@@ -158,6 +158,13 @@ describe('Daily reports (e2e)', () => {
       .query(date ? { date } : {})
       .set(authed(token));
 
+  const series = (
+    token: string,
+    branch: string,
+    query: { date?: string; days?: number } = {},
+  ): request.Test =>
+    api().get(`/api/v1/branches/${branch}/reports/series`).query(query).set(authed(token));
+
   beforeAll(async () => {
     process.env.RATE_LIMIT_AUTH = '10000';
     process.env.RATE_LIMIT_DEFAULT = '10000';
@@ -808,6 +815,118 @@ describe('Daily reports (e2e)', () => {
         .get('/api/v1/reports/branches')
         .set(authed(session.body.accessToken))
         .expect(403);
+    });
+  });
+
+  /**
+   * §8 — the takings chart.
+   *
+   * A single day's total answers "how much" and cannot answer "is that
+   * normal", which is the question a shopkeeper is actually asking. These
+   * tests hold the chart to the two things that make it trustworthy: it is
+   * the *same* arithmetic as the report it sits above, and it does not lie
+   * about days when nothing happened.
+   */
+  describe('§8 — takings per day, for the chart', () => {
+    it('ends on the day asked for and runs backwards, oldest first', async () => {
+      const response = await series(ownerToken, branchId, { date: DAY, days: 5 }).expect(200);
+
+      expect(response.body.points).toHaveLength(5);
+      expect(response.body.points.at(-1).date).toBe(DAY);
+      expect(response.body.points[0].date).toBe('2026-08-17');
+      expect(response.body.days).toBe(5);
+
+      const dates = response.body.points.map((p: { date: string }) => p.date);
+      expect([...dates].sort()).toEqual(dates);
+    });
+
+    /**
+     * The whole reason the chart is generated from the same `dayWindow()` the
+     * report uses. If these two ever disagree, one of them is lying to an
+     * owner about what their shop took.
+     */
+    it('agrees, to the shilling, with the day’s report it sits above', async () => {
+      const day = await report(ownerToken, branchId, DAY).expect(200);
+      const chart = await series(ownerToken, branchId, { date: DAY, days: 3 }).expect(200);
+
+      const today = chart.body.points.find((p: { date: string }) => p.date === DAY);
+
+      expect(today.salesTotalTzs).toBe(day.body.totals.salesTotalTzs);
+      expect(today.debtTzs).toBe(day.body.totals.debtTzs);
+      expect(today.collectedTzs).toBe(day.body.totals.collectedTzs);
+      expect(today.saleCount).toBe(day.body.totals.saleCount);
+    });
+
+    it('describes the last day of the run the same way the report does', async () => {
+      const day = await report(ownerToken, branchId, DAY).expect(200);
+      const chart = await series(ownerToken, branchId, { date: DAY, days: 7 }).expect(200);
+
+      expect(chart.body.window).toEqual(day.body.window);
+    });
+
+    it('returns a day the shop sold nothing on as a zero, not as a missing point', async () => {
+      const response = await series(ownerToken, branchId, { date: DAY, days: 7 }).expect(200);
+
+      const quiet = response.body.points.find((p: { date: string }) => p.date === '2026-08-18');
+
+      expect(quiet).toBeDefined();
+      expect(quiet.saleCount).toBe(0);
+      expect(quiet.salesTotalTzs).toBe(0);
+      expect(quiet.collectedTzs).toBe(0);
+    });
+
+    it('totals the run without the caller having to add the points up', async () => {
+      const response = await series(ownerToken, branchId, { date: DAY, days: 9 }).expect(200);
+
+      const added = response.body.points.reduce(
+        (running: number, point: { salesTotalTzs: number }) => running + point.salesTotalTzs,
+        0,
+      );
+
+      expect(response.body.totals.salesTotalTzs).toBe(added);
+    });
+
+    it('defaults to a fortnight ending today when asked for neither', async () => {
+      const response = await series(ownerToken, branchId).expect(200);
+
+      expect(response.body.points).toHaveLength(14);
+      expect(response.body.days).toBe(14);
+    });
+
+    it('names the branch it charted, so a chart cannot be read against the wrong shop', async () => {
+      const response = await series(ownerToken, branchId, { date: DAY }).expect(200);
+
+      expect(response.body.branch.id).toBe(branchId);
+      expect(response.body.timezone).toBe('Africa/Dar_es_Salaam');
+    });
+
+    /**
+     * A cap, not a preference: uncapped, this route is an invitation to pull a
+     * shop's entire trading history over a phone connection to draw a line.
+     */
+    it('refuses a run that is not a whole number of days between 1 and 90', async () => {
+      await series(ownerToken, branchId, { date: DAY, days: 0 }).expect(400);
+      await series(ownerToken, branchId, { date: DAY, days: -3 }).expect(400);
+      await series(ownerToken, branchId, { date: DAY, days: 91 }).expect(400);
+      await series(ownerToken, branchId, { date: DAY, days: 2.5 }).expect(400);
+    });
+
+    it('refuses a date no calendar has, rather than charting a different week', async () => {
+      await series(ownerToken, branchId, { date: '2026-02-30' }).expect(400);
+      await series(ownerToken, branchId, { date: '21-08-2026' }).expect(400);
+    });
+
+    it('walks back across a month boundary on the calendar', async () => {
+      const response = await series(ownerToken, branchId, { date: '2026-03-02', days: 4 }).expect(
+        200,
+      );
+
+      expect(response.body.points.map((p: { date: string }) => p.date)).toEqual([
+        '2026-02-27',
+        '2026-02-28',
+        '2026-03-01',
+        '2026-03-02',
+      ]);
     });
   });
 });

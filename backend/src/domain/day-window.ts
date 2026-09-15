@@ -267,3 +267,28 @@ export function nextDay(date: LocalDate): LocalDate {
 
   return localDateOf(shifted, 'UTC');
 }
+
+/**
+ * The run of local days ending on `endDate`, oldest first.
+ *
+ * `lastDays('2026-09-15', 3)` is `['2026-09-13', '2026-09-14', '2026-09-15']`.
+ *
+ * Built by walking the local calendar backwards one day at a time rather than
+ * by subtracting milliseconds, because a day is not always 24 hours long and
+ * a shop's week must not lose or repeat a day when a zone changes offset. Dar
+ * es Salaam does not observe daylight saving, but `Business.timezone` is a
+ * column and nothing stops a later shop from being somewhere that does.
+ */
+export function lastDays(endDate: LocalDate, days: number): LocalDate[] {
+  if (!Number.isInteger(days) || days < 1) {
+    throw new DayWindowError('A series must cover at least one day');
+  }
+
+  const dates: LocalDate[] = [endDate];
+
+  while (dates.length < days) {
+    dates.unshift(previousDay(dates[0]));
+  }
+
+  return dates;
+}

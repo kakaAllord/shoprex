@@ -8,6 +8,7 @@ import type {
   ReceivedSummary,
   SellerRow,
   TopProductRow,
+  SeriesPoint,
 } from '../../../domain/report';
 import type {
   BranchComparisonRow,
@@ -16,6 +17,7 @@ import type {
   ReportBranchView,
   ReportTransactionView,
   ReportWindowView,
+  BranchSeriesView,
 } from '../reports.service';
 
 /**
@@ -339,6 +341,74 @@ export class BranchComparisonViewDto implements BranchComparisonView {
 
   @ApiProperty({ type: BranchComparisonTotalsDto })
   totals!: BranchComparisonTotalsDto;
+
+  @ApiProperty({ type: String, format: 'date-time' })
+  generatedAt!: Date;
+}
+
+export class SeriesPointDto implements SeriesPoint {
+  @ApiProperty({
+    example: '2026-08-21',
+    description: 'A shop-local calendar day, as `YYYY-MM-DD`.',
+  })
+  date!: string;
+
+  @ApiProperty({ example: 34 })
+  saleCount!: number;
+
+  @ApiProperty({ example: 412000 })
+  salesTotalTzs!: number;
+
+  @ApiProperty({ example: 18000 })
+  debtTzs!: number;
+
+  @ApiProperty({
+    example: 394000,
+    description: 'What actually came in: `salesTotalTzs` less what walked out on credit.',
+  })
+  collectedTzs!: number;
+}
+
+class SeriesTotalsDto {
+  @ApiProperty({ example: 288 })
+  saleCount!: number;
+
+  @ApiProperty({ example: 4870000 })
+  salesTotalTzs!: number;
+
+  @ApiProperty({ example: 212000 })
+  debtTzs!: number;
+
+  @ApiProperty({ example: 4658000 })
+  collectedTzs!: number;
+}
+
+export class BranchSeriesViewDto implements BranchSeriesView {
+  @ApiProperty({ type: ReportBranchViewDto })
+  branch!: ReportBranchViewDto;
+
+  @ApiProperty({ example: 'Africa/Dar_es_Salaam' })
+  timezone!: string;
+
+  @ApiProperty({
+    type: ReportWindowViewDto,
+    description:
+      'The **last** day of the run, resolved exactly as the daily report resolves its day — so the right-hand end of the chart and the figures above it are the same day by construction.',
+  })
+  window!: ReportWindowViewDto;
+
+  @ApiProperty({ example: 14, description: 'How many days the run covers.' })
+  days!: number;
+
+  @ApiProperty({
+    type: [SeriesPointDto],
+    description:
+      'One point per day, **oldest first, with no gaps**. A day the shop sold nothing on is a zero rather than a missing point: drawing a line straight over it would claim trade that never happened.',
+  })
+  points!: SeriesPointDto[];
+
+  @ApiProperty({ type: SeriesTotalsDto })
+  totals!: SeriesTotalsDto;
 
   @ApiProperty({ type: String, format: 'date-time' })
   generatedAt!: Date;

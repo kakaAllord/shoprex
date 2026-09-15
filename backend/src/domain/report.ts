@@ -498,3 +498,66 @@ export function figuresOf(
     topProducts: topProductsOf(sales, options.topProducts),
   };
 }
+
+/**
+ * One day on the takings chart.
+ *
+ * Deliberately the four figures the stat tiles already show and nothing else:
+ * a chart of a fortnight is read at a glance, and a payment breakdown per day
+ * would be fourteen tables nobody asked for.
+ */
+export interface SeriesPoint {
+  date: string;
+  saleCount: number;
+  salesTotalTzs: number;
+  debtTzs: number;
+  collectedTzs: number;
+}
+
+/**
+ * A sale, already placed on the shop's calendar.
+ *
+ * The bucketing is done on `localDate` rather than on `createdAt` so this
+ * function stays pure: deciding which local day a UTC instant falls in needs
+ * a time zone, and that is `day-window.ts`'s job, done once by the caller.
+ */
+export interface SeriesSale {
+  localDate: string;
+  totalTzs: number;
+  debtTzs: number;
+}
+
+/**
+ * Daily totals across a run of days, oldest first.
+ *
+ * **Every requested day appears, including the empty ones.** A shop that sold
+ * nothing on Sunday has a Sunday worth seeing — dropping it would draw a line
+ * straight from Saturday to Monday and quietly claim trade that never
+ * happened. This is the same reason `describeState` keeps a negative balance:
+ * the gap is the information.
+ */
+export function seriesOf(sales: readonly SeriesSale[], dates: readonly string[]): SeriesPoint[] {
+  const points = new Map<string, SeriesPoint>(
+    dates.map((date) => [
+      date,
+      { date, saleCount: 0, salesTotalTzs: 0, debtTzs: 0, collectedTzs: 0 },
+    ]),
+  );
+
+  for (const sale of sales) {
+    const point = points.get(sale.localDate);
+
+    // A sale outside the requested run is not an error — the caller fetched a
+    // UTC range, and its edges do not line up with anybody's local midnight.
+    if (!point) {
+      continue;
+    }
+
+    point.saleCount += 1;
+    point.salesTotalTzs += sale.totalTzs;
+    point.debtTzs += sale.debtTzs;
+    point.collectedTzs += sale.totalTzs - sale.debtTzs;
+  }
+
+  return dates.map((date) => points.get(date)!);
+}

@@ -8,6 +8,8 @@ import {
   DayWindow,
   DayWindowError,
   dayWindow,
+  lastDays,
+  localDateOf,
   todayIn,
 } from '../../domain/day-window';
 import {
@@ -15,8 +17,11 @@ import {
   ReportReceipt,
   ReportSale,
   figuresOf,
+  seriesOf,
+  SeriesPoint,
 } from '../../domain/report';
 import type { PaymentKind } from '../../domain/sale';
+import { SERIES_DAYS_DEFAULT } from './dto/series.query.dto';
 
 /**
  * How many of the day's sales the report carries in full.
@@ -87,6 +92,29 @@ export interface BranchComparisonView {
   business: { id: string; name: string };
   window: ReportWindowView;
   branches: BranchComparisonRow[];
+  totals: {
+    saleCount: number;
+    salesTotalTzs: number;
+    debtTzs: number;
+    collectedTzs: number;
+  };
+  generatedAt: Date;
+}
+
+/**
+ * The takings chart: one branch, a run of shop-local days, oldest first.
+ *
+ * `window` describes the **last** day of the run, resolved exactly the way
+ * the daily report's is, so a reader can line the right-hand end of the chart
+ * up against the figures above it and know they are the same day.
+ */
+export interface BranchSeriesView {
+  branch: { id: string; name: string };
+  timezone: string;
+  window: ReportWindowView;
+  days: number;
+  points: SeriesPoint[];
+  /** The run's own totals, so a caller need not re-add the points. */
   totals: {
     saleCount: number;
     salesTotalTzs: number;
@@ -316,6 +344,86 @@ export class ReportsService {
    * to today: a report that quietly answers for a different day than the one
    * asked for is worse than one that refuses.
    */
+  /**
+   * Takings per day over a run of days, for the chart above the report.
+   *
+   * **One query, not one per day.** The run is turned into a single UTC range
+   * — the start of its first local day to the end of its last — and the sales
+   * inside it are bucketed onto the shop's calendar in memory by
+   * `seriesOf()`. Asking the database fourteen times for fourteen points
+   * would be fourteen round trips to draw one line.
+   *
+   * Only three columns are selected. A fortnight of a busy shop's sales is a
+   * lot of rows, and none of what a receipt holds — lines, payments, names —
+   * is on this chart.
+   *
+   * The day boundary is `dayWindow()`'s, the same function the daily report
+   * and the sales list use, so the right-hand point of the chart and the
+   * figures printed above it can never disagree about where today began.
+   */
+  async series(
+    principal: AuthenticatedUser,
+    branchId: string,
+    query: { date?: string; days?: number },
+  ): Promise<BranchSeriesView> {
+    const businessId = requireBusiness(principal);
+    const branch = await requireBranchAccess(this.prisma, principal, branchId);
+    const business = await this.requireBusinessRecord(businessId);
+
+    const days = query.days ?? SERIES_DAYS_DEFAULT;
+    const window = this.resolveWindow(business.timezone, query.date);
+
+    let dates: string[];
+
+    try {
+      dates = lastDays(window.date, days);
+    } catch (error) {
+      if (error instanceof DayWindowError) {
+        throw new BadRequestException(error.message);
+      }
+
+      throw error;
+    }
+
+    const first = this.resolveWindow(business.timezone, dates[0]);
+
+    const rows = await this.prisma.sale.findMany({
+      where: {
+        businessId,
+        branchId: branch.id,
+        createdAt: { gte: first.startUtc, lt: window.endUtc },
+      },
+      select: { createdAt: true, totalTzs: true, debtTzs: true },
+    });
+
+    const points = seriesOf(
+      rows.map((row) => ({
+        localDate: localDateOf(row.createdAt, business.timezone),
+        totalTzs: row.totalTzs,
+        debtTzs: row.debtTzs,
+      })),
+      dates,
+    );
+
+    return {
+      branch: { id: branch.id, name: branch.name },
+      timezone: business.timezone,
+      window,
+      days,
+      points,
+      totals: points.reduce(
+        (running, point) => ({
+          saleCount: running.saleCount + point.saleCount,
+          salesTotalTzs: running.salesTotalTzs + point.salesTotalTzs,
+          debtTzs: running.debtTzs + point.debtTzs,
+          collectedTzs: running.collectedTzs + point.collectedTzs,
+        }),
+        { saleCount: 0, salesTotalTzs: 0, debtTzs: 0, collectedTzs: 0 },
+      ),
+      generatedAt: new Date(),
+    };
+  }
+
   private resolveWindow(timezone: string, date: string | undefined): ReportWindowView {
     let window: DayWindow;
 

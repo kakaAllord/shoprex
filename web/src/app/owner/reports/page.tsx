@@ -5,9 +5,11 @@ import { ConsoleShell } from '@/components/console-shell';
 import { EmptyState, ErrorState, Panel } from '@/components/states';
 import { StatCard } from '@/components/stat-card';
 import { BarList, type BarRow } from '@/components/charts/bar-list';
+import { TrendChart } from '@/components/charts/trend-chart';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import {
   Table,
@@ -23,10 +25,13 @@ import { requireConsole } from '@/lib/api/guard';
 import { fetchMyBranches } from '@/lib/api/organization';
 import {
   BranchComparison,
+  BranchSeries,
   DailyReport,
   fetchBranchComparison,
+  fetchBranchSeries,
   fetchDailyReport,
 } from '@/lib/api/reports';
+import { compareToRun } from '@/lib/series';
 
 export const dynamic = 'force-dynamic';
 
@@ -130,6 +135,22 @@ export default async function ReportsPage({
     }
   }
 
+  // The chart is context, not the report. If it cannot be drawn the figures
+  // are still true, so a failure here costs a panel rather than the page —
+  // the same bargain the branch comparison above makes.
+  //
+  // It ends on the day the report covers, not on today, so choosing a date in
+  // the past moves the chart with it.
+  let series: BranchSeries | null = null;
+
+  try {
+    series = await fetchBranchSeries(token, selected.id, { date: report.window.date, days: 14 });
+  } catch {
+    series = null;
+  }
+
+  const trend = series ? compareToRun(series.points) : null;
+
   const todayQuery = `/owner/reports?branch=${selected.id}`;
   const branchQuery = (branchId: string) =>
     `/owner/reports?branch=${branchId}${date ? `&date=${date}` : ''}`;
@@ -156,6 +177,8 @@ export default async function ReportsPage({
           label="Zilizoingia · Collected"
           value={money(report.totals.collectedTzs)}
           tone="money"
+          comparison={trend}
+          sparkline={series?.points.map((point) => point.collectedTzs)}
           hint={`Chenji iliyotolewa · change given ${money(report.totals.changeTzs)}`}
         />
         <StatCard
@@ -179,6 +202,12 @@ export default async function ReportsPage({
           hint="Zilizoingia + deni"
         />
       </div>
+
+      {series && series.points.length > 1 ? (
+        <Card className="p-5">
+          <TrendChart points={series.points} label="Zilizoingia kwa siku" />
+        </Card>
+      ) : null}
 
       {report.totals.salesWithShortfall > 0 ? (
         <Alert variant="warning">

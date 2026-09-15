@@ -7,6 +7,7 @@ import {
   paymentBreakdownOf,
   receivedOf,
   sellersOf,
+  seriesOf,
   topProductsOf,
   totalsOf,
 } from './report';
@@ -515,5 +516,72 @@ describe('figuresOf', () => {
     expect(figures.sellers).toEqual([]);
     expect(figures.received.rows).toEqual([]);
     expect(figures.topProducts).toEqual([]);
+  });
+});
+
+describe('seriesOf', () => {
+  const sale = (localDate: string, totalTzs: number, debtTzs = 0) => ({
+    localDate,
+    totalTzs,
+    debtTzs,
+  });
+
+  it('totals each day and keeps them in the order asked for', () => {
+    const series = seriesOf(
+      [sale('2026-09-14', 5000), sale('2026-09-15', 3000), sale('2026-09-15', 2000)],
+      ['2026-09-14', '2026-09-15'],
+    );
+
+    expect(series.map((point) => point.date)).toEqual(['2026-09-14', '2026-09-15']);
+    expect(series[0]).toMatchObject({ saleCount: 1, salesTotalTzs: 5000, collectedTzs: 5000 });
+    expect(series[1]).toMatchObject({ saleCount: 2, salesTotalTzs: 5000, collectedTzs: 5000 });
+  });
+
+  /**
+   * The point of the whole function. A missing day drawn as a line straight
+   * from the day before to the day after claims trade that never happened.
+   */
+  it('keeps a day the shop sold nothing on, as a zero rather than a gap', () => {
+    const series = seriesOf(
+      [sale('2026-09-13', 4000), sale('2026-09-15', 6000)],
+      ['2026-09-13', '2026-09-14', '2026-09-15'],
+    );
+
+    expect(series).toHaveLength(3);
+    expect(series[1]).toEqual({
+      date: '2026-09-14',
+      saleCount: 0,
+      salesTotalTzs: 0,
+      debtTzs: 0,
+      collectedTzs: 0,
+    });
+  });
+
+  it('separates what was collected from what was only promised', () => {
+    const series = seriesOf([sale('2026-09-15', 10000, 4000)], ['2026-09-15']);
+
+    expect(series[0]).toMatchObject({
+      salesTotalTzs: 10000,
+      debtTzs: 4000,
+      collectedTzs: 6000,
+    });
+  });
+
+  /**
+   * The caller fetches a UTC range whose edges do not line up with anybody's
+   * local midnight, so a sale just outside the run is ordinary, not a fault.
+   */
+  it('ignores a sale outside the run rather than throwing', () => {
+    const series = seriesOf(
+      [sale('2026-09-12', 9999), sale('2026-09-15', 1000)],
+      ['2026-09-14', '2026-09-15'],
+    );
+
+    expect(series[0].salesTotalTzs).toBe(0);
+    expect(series[1].salesTotalTzs).toBe(1000);
+  });
+
+  it('returns a row per requested day even when nothing sold at all', () => {
+    expect(seriesOf([], ['2026-09-14', '2026-09-15'])).toHaveLength(2);
   });
 });

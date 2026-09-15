@@ -276,6 +276,22 @@ numbers. The day is always the shop's own: choosing a date never asks the
 browser or the phone what day it is, only the backend, which resolves it from
 `Business.timezone` and its own clock.
 
+**Revised in Phase 9 (2026-09-15): the day is shown against the fortnight
+behind it.** A total on its own answers *how much* and cannot answer *is that
+normal*, which is the question an owner opens Ripoti to ask. The screen now
+leads with the day's takings carrying a small chart of the last fourteen days
+and a plain comparison — "18% above the fortnight's average" — and a larger
+chart of the same run sits directly beneath the figures.
+
+The comparison is against the **average of the preceding days**, never against
+yesterday: yesterday might have been a public holiday or the day a wedding
+bought out the shop, and comparing to it makes an ordinary Tuesday read as a
+disaster. Where there is nothing honest to compare against — a shop's first
+day, or a stretch of closed ones — **no comparison is shown at all** rather
+than a percentage that is an artefact of dividing by nearly nothing. A day the
+shop sold nothing on appears on the chart as a zero, never as a gap the line
+is drawn straight over.
+
 ## 8. What V1 does not include
 
 V1 does not include customer accounts, CRM, customer history, returns, refunds, sale corrections, expenses, profit accounting, supplier management, purchase orders, e-commerce, delivery, loyalty, visual product recognition, branch stock transfers, mobile-money API integration, **receipt printing**, or offline multi-device synchronization.

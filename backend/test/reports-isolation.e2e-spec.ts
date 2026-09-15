@@ -48,6 +48,7 @@ describe('Report isolation (e2e)', () => {
 
   const dailyUrl = (branchId: string) => `/api/v1/branches/${branchId}/reports/daily`;
   const pdfUrl = (branchId: string) => `/api/v1/branches/${branchId}/reports/daily.pdf`;
+  const seriesUrl = (branchId: string) => `/api/v1/branches/${branchId}/reports/series`;
 
   const signupOwner = async (shopName: string, email: string, phone: string) => {
     const response = await api()
@@ -256,6 +257,14 @@ describe('Report isolation (e2e)', () => {
         .expect(404);
     });
 
+    it('answers 404 for another shop’s takings chart', async () => {
+      await api()
+        .get(seriesUrl(branchB1Id))
+        .query({ date: DAY, days: 7 })
+        .set(authed(ownerAToken))
+        .expect(404);
+    });
+
     it('answers 404 in the other direction too', async () => {
       await api()
         .get(dailyUrl(branchA1Id))
@@ -283,6 +292,36 @@ describe('Report isolation (e2e)', () => {
       expect(b.totals.salesTotalTzs).toBe(9_900);
       expect(a.business.name).toBe('Duka A');
       expect(b.business.name).toBe('Duka B');
+    });
+
+    /**
+     * The chart is a second way of reading the same money, so it is a second
+     * way of leaking it. Its figures must reconcile with the day's report for
+     * the caller's own shop, and know nothing of anybody else's.
+     */
+    it('charts only the caller’s own shop, and agrees with that shop’s report', async () => {
+      const a = (
+        await api()
+          .get(seriesUrl(branchA1Id))
+          .query({ date: DAY, days: 3 })
+          .set(authed(ownerAToken))
+          .expect(200)
+      ).body;
+      const b = (
+        await api()
+          .get(seriesUrl(branchB1Id))
+          .query({ date: DAY, days: 3 })
+          .set(authed(ownerBToken))
+          .expect(200)
+      ).body;
+
+      const dayOf = (body: { points: { date: string; salesTotalTzs: number }[] }) =>
+        body.points.find((point) => point.date === DAY)!;
+
+      expect(dayOf(a).salesTotalTzs).toBe(1_100);
+      expect(dayOf(b).salesTotalTzs).toBe(9_900);
+      expect(a.branch.name).toBe('Tawi A1');
+      expect(b.branch.name).toBe('Tawi B1');
     });
 
     it('never names another tenant’s product in the best sellers or the deliveries', async () => {
@@ -390,6 +429,11 @@ describe('Report isolation (e2e)', () => {
         .query({ date: DAY })
         .set(authed(managerA1Token))
         .expect(404);
+      await api()
+        .get(seriesUrl(branchA2Id))
+        .query({ date: DAY })
+        .set(authed(managerA1Token))
+        .expect(404);
     });
 
     it('lets them read the branch they were given', async () => {
@@ -405,6 +449,11 @@ describe('Report isolation (e2e)', () => {
 
   describe('permission is enforced on the server, not in a client', () => {
     it('refuses a worker who holds SELL but not VIEW_REPORTS', async () => {
+      await api()
+        .get(seriesUrl(branchA1Id))
+        .query({ date: DAY })
+        .set(authed(workerA1Token))
+        .expect(403);
       await api()
         .get(dailyUrl(branchA1Id))
         .query({ date: DAY })
@@ -459,6 +508,7 @@ describe('Report isolation (e2e)', () => {
     it('refuses an unauthenticated caller on every report route', async () => {
       await api().get(dailyUrl(branchA1Id)).query({ date: DAY }).expect(401);
       await api().get(pdfUrl(branchA1Id)).query({ date: DAY }).expect(401);
+      await api().get(seriesUrl(branchA1Id)).query({ date: DAY }).expect(401);
       await api().get('/api/v1/reports/branches').query({ date: DAY }).expect(401);
     });
   });

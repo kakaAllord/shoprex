@@ -1,6 +1,7 @@
 import {
   DayWindowError,
   dayWindow,
+  lastDays,
   localDateOf,
   nextDay,
   parseLocalDate,
@@ -197,5 +198,34 @@ describe('previousDay and nextDay', () => {
   it('step across a year boundary', () => {
     expect(nextDay('2026-12-31')).toBe('2027-01-01');
     expect(previousDay('2027-01-01')).toBe('2026-12-31');
+  });
+});
+
+describe('lastDays', () => {
+  it('ends on the day asked for and runs backwards, oldest first', () => {
+    expect(lastDays('2026-09-15', 3)).toEqual(['2026-09-13', '2026-09-14', '2026-09-15']);
+  });
+
+  it('gives one day when asked for one', () => {
+    expect(lastDays('2026-09-15', 1)).toEqual(['2026-09-15']);
+  });
+
+  it('walks back across a month boundary on the calendar, not by subtracting hours', () => {
+    expect(lastDays('2026-03-02', 4)).toEqual([
+      '2026-02-27',
+      '2026-02-28',
+      '2026-03-01',
+      '2026-03-02',
+    ]);
+  });
+
+  it('knows February has 29 days in a leap year', () => {
+    expect(lastDays('2028-03-01', 2)).toEqual(['2028-02-29', '2028-03-01']);
+  });
+
+  it('refuses a run of no days rather than returning an empty chart', () => {
+    expect(() => lastDays('2026-09-15', 0)).toThrow(DayWindowError);
+    expect(() => lastDays('2026-09-15', -1)).toThrow(DayWindowError);
+    expect(() => lastDays('2026-09-15', 1.5)).toThrow(DayWindowError);
   });
 });

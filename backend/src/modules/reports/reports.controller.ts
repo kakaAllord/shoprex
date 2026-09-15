@@ -21,8 +21,18 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { BEARER_AUTH } from '../../docs/swagger';
 import { dailyReportFilename, renderDailyReportPdf } from './daily-report.pdf';
 import { DailyReportQueryDto } from './dto/daily-report.query.dto';
-import { BranchComparisonViewDto, DailyReportViewDto } from './dto/report-response.dto';
-import { BranchComparisonView, DailyReportView, ReportsService } from './reports.service';
+import {
+  BranchComparisonViewDto,
+  BranchSeriesViewDto,
+  DailyReportViewDto,
+} from './dto/report-response.dto';
+import { SeriesQueryDto } from './dto/series.query.dto';
+import {
+  BranchComparisonView,
+  BranchSeriesView,
+  DailyReportView,
+  ReportsService,
+} from './reports.service';
 
 /**
  * The day, read back.
@@ -72,6 +82,36 @@ export class ReportsController {
     @Query() query: DailyReportQueryDto,
   ): Promise<DailyReportView> {
     return this.reports.daily(user, branchId, query.date);
+  }
+
+  @ApiOperation({
+    summary: 'Takings per day for one branch, for the chart',
+    description:
+      'The run of days behind the figures, so an owner can see whether today was a good day **for this shop** rather than only what it took. A single number answers "how much"; it cannot answer "is that normal", and that is the question a shopkeeper is actually asking.\n\nOne point per shop-local day, **oldest first and with no gaps** — a day the shop sold nothing on comes back as a zero, because drawing a line straight over it would claim trade that never happened.\n\nThe day boundary is the same `dayWindow()` the daily report and the sales list use, so the right-hand end of the chart is the very day whose totals are printed above it. `window` describes that last day.\n\nDeliberately four figures a day and no more: a payment breakdown per day would be a fortnight of tables nobody asked for, and `days` is capped so a sparkline cannot become an export.',
+  })
+  @ApiParam({ name: 'branchId', format: 'uuid' })
+  @ApiOkResponse({ type: BranchSeriesViewDto })
+  @ApiBadRequestResponse({
+    type: ErrorResponseDto,
+    description:
+      '`date` is not `YYYY-MM-DD` or is a day no calendar has, or `days` is not a whole number between 1 and 90.',
+  })
+  @ApiForbiddenResponse({
+    type: ErrorResponseDto,
+    description: 'The caller does not hold `VIEW_REPORTS`.',
+  })
+  @ApiNotFoundResponse({
+    type: ErrorResponseDto,
+    description:
+      'No such branch for this caller — the answer for another tenant’s branch and for one the caller is not assigned to alike.',
+  })
+  @Get('branches/:branchId/reports/series')
+  series(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @Query() query: SeriesQueryDto,
+  ): Promise<BranchSeriesView> {
+    return this.reports.series(user, branchId, query);
   }
 
   @ApiOperation({

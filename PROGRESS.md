@@ -19,7 +19,7 @@ If Part A and Part B ever disagree (e.g. the table says "Complete" but a section
 | 6 | Next.js owner and admin web app | Complete | Yes — every clause driven end to end over HTTP by all four roles, plus a live console smoke test, see §6 | 2026-08-23 |
 | 7 | Reports and PDF | Complete | Yes — every clause driven end to end over real HTTP, plus a live console and PDF-download check against a running backend and web server, see §7 | 2026-08-24 |
 | 8 | Pilot hardening and launch | In progress | Partly — every code deliverable is verified by real tests (see §8); **low-end Android testing and the pilot shop itself are outstanding**. Distribution and over-the-air updates configured 2026-08-25, unproven against EAS, see §8a | 2026-08-25 |
-| 9 | Web console on shadcn/ui | In progress | Partly — suite passes at **1,186**, and all 9 console routes were **driven in a real browser** at desktop and phone width, which found and fixed two layout bugs (see §9). What remains is a human eye on each screen and every write clicked through | 2026-09-15 |
+| 9 | Web console on shadcn/ui | In progress | Partly — suite passes at **1,219**, and all 9 console routes were **driven in a real browser** at desktop and phone width against a fortnight of seeded trading, which found and fixed four layout bugs (see §9). What remains is a human eye on each screen and every write clicked through | 2026-09-15 |
 
 **Status values:** `Not started` / `In progress` / `Blocked` / `Complete`. Only mark `Complete` when the acceptance-check column says `Yes`, backed by a real test run referenced in that phase's section below.
 
@@ -27,7 +27,7 @@ If Part A and Part B ever disagree (e.g. the table says "Complete" but a section
 
 Phase 9 rebuilt the **web console** on shadcn/ui with a collapsible sidebar, light and dark themes, and a colour system in which every colour does exactly one job. It found one real defect on the way: the existing primary button was **white on emerald 600 at 3.77:1**, against WCAG AA's 4.5:1 — a genuine accessibility failure in the Phase 0 design lock, unrelated to shadcn, now fixed at 5.48:1.
 
-The suite stands at **1,186** — backend unit 260 (unchanged), backend e2e 613 (unchanged), web 80 → **87**, mobile 226 (unchanged). Backend and mobile were not touched.
+The suite stands at **1,219** — backend unit 260 → **270**, backend e2e 613 → **627**, web 80 → **96**, mobile 226 (unchanged). The backend gained one read-only route, `GET /branches/:id/reports/series`, which is the only thing this phase adds outside the console; mobile was not touched at all.
 
 A headless browser then drove all nine console routes at 1440px and 400px, which found **two real layout bugs that no test would ever have caught** — see §9. Both are fixed.
 
@@ -2124,7 +2124,7 @@ It was untracked build output left over from before the Duka→Shoprex rename: `
 
 ### §9 — The web console on shadcn/ui (2026-09-15)
 
-**Status:** In progress. **Verified:** Partly — the suite passes at **1,186**, the console typechecks and builds clean, 7 new web tests cover what is genuinely new, and **all nine console routes were driven in a real headless browser** at 1440px and 400px against a live backend with real sales in it. That pass found two layout bugs, both fixed. What it does not cover is a human reading each screen, or any write clicked through a form. **Date:** 2026-09-15.
+**Status:** In progress. **Verified:** Partly — the suite passes at **1,219**, the console typechecks and builds clean, 33 new tests cover what is genuinely new, and **all nine console routes were driven in a real headless browser** at 1440px and 400px against a live backend carrying a fortnight of seeded trading. That pass found four layout bugs, all fixed. What it does not cover is a human reading each screen, or any write clicked through a form. **Date:** 2026-09-15.
 
 **Why this is a phase and not part of Phase 8.** The team asked for the console to be rebuilt on shadcn/ui and for a green-and-blue palette. Phase 8's remaining deliverables are physical — a low-end Android phone, a real pilot shop — and folding a console redesign into it would have let its acceptance check quietly stop meaning what it says. The owner chose a new phase on 2026-09-15; Phase 8 stays open and honest.
 
@@ -2184,7 +2184,13 @@ This costs less than it sounds, because shadcn's whole model is that components 
 
 **Dependencies added to `web/`** (approved by the owner before installing): `tailwindcss@4`, `@tailwindcss/postcss`, `tw-animate-css`, `class-variance-authority`, `clsx`, `tailwind-merge`, `lucide-react`, `next-themes`, nine `@radix-ui/react-*` primitives, and `@testing-library/user-event`.
 
-**Backend and mobile: untouched.** No route, no schema, no phone code.
+**Backend — new:** `src/modules/reports/dto/series.query.dto.ts`; `lastDays()` in `src/domain/day-window.ts` and `seriesOf()` in `src/domain/report.ts`, both pure and both tested; `ReportsService.series()`, the `GET branches/:branchId/reports/series` route, and `BranchSeriesViewDto`/`SeriesPointDto`.
+
+**Backend — edited:** `test/openapi.e2e-spec.ts` (the route list, which fails by design when a route arrives undocumented), `test/reports.e2e-spec.ts` (+10, §8), `test/reports-isolation.e2e-spec.ts` (+4 — cross-tenant, wrong-branch, permission, unauthenticated), and the two domain specs (+10).
+
+**No schema change, and no write.** The route is read-only, and it is the only thing in this phase outside `web/`.
+
+**Mobile: untouched.** No phone code at all.
 
 **Docs:** `AGENT.md` (design rules rewritten for the divergence), `README.md` (design language, the component-library section, the sidebar), `PROGRESS.md` (this), `docs/v1/03` (the Phase 9 row).
 
@@ -2198,15 +2204,34 @@ cd mobile  && npm run typecheck && npm test
 
 | Surface | Before | After |
 |---|---|---|
-| Backend unit | 260 / 12 suites | 260 / 12 suites (untouched) |
-| Backend e2e | 613 / 19 suites | 613 / 19 suites (untouched) |
-| Web | 80 / 15 files | **87 / 17 files** |
+| Backend unit | 260 / 12 suites | **270 / 12 suites** |
+| Backend e2e | 613 / 19 suites | **627 / 19 suites** |
+| Web | 80 / 15 files | **96 / 18 files** |
 | Mobile | 226 / 13 suites | 226 / 13 suites (untouched) |
-| **Total** | **1,179** | **1,186** |
+| **Total** | **1,179** | **1,219** |
 
 Lint, typecheck, and build pass on backend and web; mobile typecheck and tests pass.
 
 **One real regression was caught by an existing test**, and it is the kind worth recording. The new `Alert` component set `role="alert"` on everything, which meant a **403 started announcing itself to a screen reader as an error**. Phase 6 had settled deliberately that a permission refusal is the shop's own rule rather than a fault. `states.test.tsx` asserted `queryByRole('alert')` was null and failed. The fix was to the component, not the test: `Alert` now carries **no implicit role**, and only genuine faults pass `role="alert"`. Red announces; amber describes.
+
+#### The chart, and the route it needed
+
+Logged as blocker 1 when the console was first rebuilt, then approved and built.
+
+**A number cannot say whether it is a good number.** `TSh 203,000` answers "how much" and leaves "is that normal" — the question a shopkeeper actually opened the page to ask — entirely unanswered. So Ripoti now draws the fortnight behind the figure, and the takings tile carries a sparkline and a comparison.
+
+That needed the one thing this phase adds outside the console: **`GET /branches/:branchId/reports/series`**, read-only, no schema change.
+
+- **One query, not one per day.** The run becomes a single UTC range and the sales inside it are bucketed onto the shop's calendar in memory. Fourteen round trips to draw one line would be absurd on a shop's connection.
+- **It resolves its days through the same `dayWindow()`** the daily report and the sales list use, so the right-hand end of the chart *is* the day whose totals are printed above it. `reports.e2e-spec.ts` asserts the two agree to the shilling — if they ever diverge, one of them is lying to an owner about what their shop took.
+- **A day the shop sold nothing on comes back as a zero, never a missing point.** Drawing a line straight over a gap claims trade that never happened. This is the same instinct as `describeState` keeping a negative balance: the gap is the information.
+- **`days` is capped at 90.** Uncapped, a sparkline route is an invitation to pull a shop's whole trading history over a phone connection.
+
+On the web side the comparison is a pure function, `web/src/lib/series.ts`, measured against the **mean of the preceding days** rather than against yesterday — yesterday might have been a public holiday, and comparing to it makes an ordinary Tuesday look like a catastrophe. It **refuses to compare** against a run averaging zero, because a shop reopening after a closed week should not be told its takings are up several thousand percent.
+
+Two drawing decisions worth keeping: **both charts baseline at zero** (scaled to their own range, a steady week becomes a mountain range), and the trend chart keeps a tenth of headroom above the best day, because a line touching the top edge reads as cropped.
+
+The trend pill carries an arrow as well as a colour, so direction survives a reader who cannot separate green from amber — and survives a printout.
 
 #### What driving a real browser found
 
@@ -2215,6 +2240,10 @@ Playwright against a live backend, signed in as the seeded owner with five sales
 **1. Ripoti scrolled sideways at phone width.** 414px of content in a 400px window. The cause is worth writing down because it will recur: a `grid` with only `lg:grid-cols-2` on it has **no column template below `lg`**, so its single implicit column is an `auto` track — and an `auto` track sizes to its content's *max-content* width. The tables inside were dragging the grid wider than the page. `overflow-x-auto` on the table container did not save it, because the card had already been stretched. The fix is `grid-cols-1` as an explicit base on every responsive grid, which is `repeat(1, minmax(0, 1fr))` and caps at the container. **Twelve grids in this codebase had the bug**; all twelve are fixed.
 
 **2. Money wrapped mid-figure.** `TSh 218,000` broke across two lines in narrow table columns. Right-aligned tabular cells are always figures, so they are now `whitespace-nowrap`.
+
+**3. The takings chart letterboxed on a phone.** An SVG pinned to a fixed height with a 720-wide viewBox scales by `meet`, so at 400px the drawing rendered 330×87 centred inside a 190px box with empty bands above and below. `h-auto` lets the viewBox's own aspect ratio drive the height instead, and the plot fills its card at every width.
+
+**4. Its day labels were a smudge, and the last two collided.** Text inside a scaled viewBox scales with it — a 10px label in a 720-wide viewBox renders at about four pixels on a phone. The labels are HTML now, positioned by percentage, so they stay the size they are set. Separately, the "one label in five" rule printed a label immediately beside **Leo**; anything that close to the right-hand end is now skipped, because *today* is the one label that must always be legible.
 
 Also confirmed, in passing: the console **behaved correctly under a rate limit**. The verification script hammered `/auth/me` hard enough to hit the 120/min bucket, and the console sent the reader to `/login?problem=backend` rather than pretending the session had expired — which is exactly the Phase 6 decision working, observed rather than assumed.
 
@@ -2329,12 +2358,15 @@ Narrowed by the browser pass above, but most of it stands:
 
 | # | Question | Why it matters |
 |---|---|---|
-| 1 | **Should Ripoti get a takings trend over time?** It needs one new backend route (a multi-day series for a branch) — the existing daily-report endpoint computes a whole day per call, so fetching seven is not a reasonable substitute. This is backend scope and was not taken on unasked | It is the one thing in the original mockup that is not in the build, and it is the chart an owner would look at most |
+| 1 | ~~Should Ripoti get a takings trend over time?~~ **Answered: yes, build it.** Approved 2026-09-15 and done — `GET /branches/:branchId/reports/series`, a fortnight chart, and a sparkline on the takings tile. See *The chart, and the route it needed* above | Closed |
 | 2 | **Does the phone ever follow?** Recorded as a permanent divergence. If that changes, it is a Phase 10 | A later agent reading two design languages needs to know which is intended |
 | 3 | Phase 8's three blockers, unchanged: which shop is the pilot, who has a low-end Android phone, and where the backend will be hosted | Phase 8 cannot close without them, and Phase 9 does not touch them |
 
 #### Handoff notes
 
+- **Both charts baseline at zero, and neither scales to its own range.** A chart cropped to its minimum turns a steady week into a mountain range, and this one is read by somebody deciding whether to worry.
+- **Text inside a scaled SVG viewBox is a trap.** It scales with the drawing, so a 10px label becomes four pixels on a phone. Axis labels are HTML positioned by percentage; only the plot is SVG. The same reasoning put the sparkline's end dot outside its SVG — `r` has no `vector-effect` escape hatch, so a circle in a stretched viewBox draws as an ellipse.
+- **The chart and the report must resolve their day through the same `dayWindow()`.** A test asserts they agree to the shilling. If you ever add a second way of deciding what "today" means, that test is the one that will tell you.
 - **Every responsive grid needs `grid-cols-1` as its base.** `grid gap-4 lg:grid-cols-2` has an `auto` track below `lg`, which sizes to max-content and drags the page sideways as soon as a table is inside it. This shipped in twelve places and was found only by measuring a real browser at 400px. Nothing lints for it.
 - **Add a colour by adding a token**, in `:root` *and* `.dark`, then exposing it in the `@theme inline` block. Never write a hex value into a component.
 - **`--primary` and the chart ramp are measured.** The reasoning is in the file's own comment. Re-measure before nudging either; the tools are `node scripts/validate_palette.js` from the dataviz skill for the ramp, and any contrast checker for the button.

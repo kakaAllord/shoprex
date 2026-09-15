@@ -140,3 +140,49 @@ export function fetchBranchComparison(
 ): Promise<BranchComparison> {
   return apiRequest<BranchComparison>(`/reports/branches${queryString({ date })}`, authorized(token));
 }
+
+export interface SeriesPoint {
+  /** A shop-local calendar day, `YYYY-MM-DD`. */
+  date: string;
+  saleCount: number;
+  salesTotalTzs: number;
+  debtTzs: number;
+  collectedTzs: number;
+}
+
+export interface BranchSeries {
+  branch: { id: string; name: string };
+  timezone: string;
+  window: ReportWindow;
+  days: number;
+  /** Oldest first, one per day, **with no gaps** — a quiet day is a zero. */
+  points: SeriesPoint[];
+  totals: {
+    saleCount: number;
+    salesTotalTzs: number;
+    debtTzs: number;
+    collectedTzs: number;
+  };
+  generatedAt: string;
+}
+
+/**
+ * Takings per day, for the chart above the report.
+ *
+ * The right-hand point is the same day the report below it covers, because
+ * both resolve their day through the backend's one `dayWindow()`. Nothing
+ * here recomputes a boundary.
+ */
+export function fetchBranchSeries(
+  token: string,
+  branchId: string,
+  options: { date?: string; days?: number } = {},
+): Promise<BranchSeries> {
+  return apiRequest<BranchSeries>(
+    `/branches/${branchId}/reports/series${queryString({
+      date: options.date,
+      days: options.days?.toString(),
+    })}`,
+    authorized(token),
+  );
+}
