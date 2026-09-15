@@ -164,7 +164,7 @@ export default async function StaffPage() {
               label="Ongeza mfanyakazi · Add worker"
               busyLabel="Inaongeza..."
             >
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <Field htmlFor="worker-name" label="Jina kamili · Full name">
                   <Input id="worker-name" name="fullName" required placeholder="Juma Hassan" />
                 </Field>
@@ -202,7 +202,7 @@ export default async function StaffPage() {
               label="Ongeza meneja · Add manager"
               busyLabel="Inaongeza..."
             >
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <Field htmlFor="manager-name" label="Jina kamili · Full name">
                   <Input id="manager-name" name="fullName" required placeholder="Asha Mwakalinga" />
                 </Field>

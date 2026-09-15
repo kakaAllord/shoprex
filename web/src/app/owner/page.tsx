@@ -69,7 +69,7 @@ export default async function OwnerPage() {
         </Button>
       }
     >
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Link href="/owner/branches" className="rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <StatCard
             label={isOwner(profile) ? 'Matawi · Branches' : 'Matawi yako · Your branches'}
@@ -105,7 +105,7 @@ export default async function OwnerPage() {
         </Link>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
         <Panel title="Duka · Business">
           <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2.5 text-sm">
             <dt className="text-muted-foreground">Jina · Name</dt>
@@ -115,7 +115,7 @@ export default async function OwnerPage() {
             <dt className="text-muted-foreground">Sarafu · Currency</dt>
             <dd className="text-right font-medium">{business.currency}</dd>
             <dt className="text-muted-foreground">Watumiaji · Users</dt>
-            <dd className="tabular text-right font-medium">{business.userCount}</dd>
+            <dd className="tabular whitespace-nowrap text-right font-medium">{business.userCount}</dd>
           </dl>
         </Panel>
 

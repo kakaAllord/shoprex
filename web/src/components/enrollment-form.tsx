@@ -88,7 +88,7 @@ export function EnrollmentForm({ branches }: { branches: BranchView[] }) {
       ) : null}
 
       <form action={formAction} className="flex flex-col gap-3">
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field htmlFor="enroll-branch" label="Tawi · Branch this phone belongs to">
             <NativeSelect id="enroll-branch" name="branchId" required>
               {branches.map((branch) => (

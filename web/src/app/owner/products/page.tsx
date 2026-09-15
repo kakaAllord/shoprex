@@ -137,10 +137,10 @@ export default async function ProductsPage({
                               </span>
                             ) : null}
                           </TableCell>
-                          <TableCell className="tabular text-right">
+                          <TableCell className="tabular whitespace-nowrap text-right">
                             {priceOrUnpriced(unit.priceTzs)}
                           </TableCell>
-                          <TableCell className="tabular text-right">{unit.factorToBase}</TableCell>
+                          <TableCell className="tabular whitespace-nowrap text-right">{unit.factorToBase}</TableCell>
                           <TableCell className="tabular text-muted-foreground">
                             {unit.barcodes.length === 0 ? '—' : unit.barcodes.join(', ')}
                           </TableCell>
@@ -252,7 +252,7 @@ export default async function ProductsPage({
             label="Ongeza bidhaa · Add product"
             busyLabel="Inaongeza..."
           >
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <Field htmlFor="product-name" label="Jina · Name">
                 <Input id="product-name" name="name" required placeholder="Coca-Cola 500ml" />
               </Field>

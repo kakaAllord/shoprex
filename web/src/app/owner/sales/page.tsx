@@ -124,8 +124,8 @@ export default async function SalesPage({
                       ) : null}
                     </span>
                   </TableCell>
-                  <TableCell className="tabular text-right">{sale.lineCount}</TableCell>
-                  <TableCell className="tabular text-right">
+                  <TableCell className="tabular whitespace-nowrap text-right">{sale.lineCount}</TableCell>
+                  <TableCell className="tabular whitespace-nowrap text-right">
                     <span className="font-medium">{money(sale.totalTzs)}</span>
                     {sale.debtTzs > 0 ? (
                       <span className="block text-xs text-warning-foreground">

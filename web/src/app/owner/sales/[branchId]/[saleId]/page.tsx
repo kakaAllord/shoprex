@@ -111,9 +111,9 @@ export default async function SaleDetailPage({
                   </span>
                 </TableCell>
                 <TableCell className="text-muted-foreground">{line.unitName}</TableCell>
-                <TableCell className="tabular text-right">{line.quantity}</TableCell>
-                <TableCell className="tabular text-right">{money(line.unitPriceTzs)}</TableCell>
-                <TableCell className="tabular text-right font-medium">
+                <TableCell className="tabular whitespace-nowrap text-right">{line.quantity}</TableCell>
+                <TableCell className="tabular whitespace-nowrap text-right">{money(line.unitPriceTzs)}</TableCell>
+                <TableCell className="tabular whitespace-nowrap text-right font-medium">
                   {money(line.lineTotalTzs)}
                 </TableCell>
               </TableRow>
@@ -137,11 +137,11 @@ export default async function SaleDetailPage({
             {sale.payments.map((payment) => (
               <TableRow key={payment.paymentMethodId}>
                 <TableCell className="font-medium">{payment.methodName}</TableCell>
-                <TableCell className="tabular text-right">{money(payment.amountTzs)}</TableCell>
-                <TableCell className="tabular text-right">
+                <TableCell className="tabular whitespace-nowrap text-right">{money(payment.amountTzs)}</TableCell>
+                <TableCell className="tabular whitespace-nowrap text-right">
                   {payment.cashReceivedTzs === null ? '—' : money(payment.cashReceivedTzs)}
                 </TableCell>
-                <TableCell className="tabular text-right">
+                <TableCell className="tabular whitespace-nowrap text-right">
                   {payment.changeTzs === null ? '—' : money(payment.changeTzs)}
                 </TableCell>
                 <TableCell className="text-muted-foreground">
@@ -154,11 +154,11 @@ export default async function SaleDetailPage({
 
         <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-6 gap-y-2.5 border-t pt-4 text-sm">
           <dt className="text-muted-foreground">Jumla · Total</dt>
-          <dd className="tabular text-right font-semibold">{money(sale.totalTzs)}</dd>
+          <dd className="tabular whitespace-nowrap text-right font-semibold">{money(sale.totalTzs)}</dd>
           <dt className="text-muted-foreground">Chenji · Change given</dt>
-          <dd className="tabular text-right">{money(sale.changeTzs)}</dd>
+          <dd className="tabular whitespace-nowrap text-right">{money(sale.changeTzs)}</dd>
           <dt className="text-muted-foreground">Deni · Recorded as owed</dt>
-          <dd className="tabular text-right">{money(sale.debtTzs)}</dd>
+          <dd className="tabular whitespace-nowrap text-right">{money(sale.debtTzs)}</dd>
           <dt className="text-muted-foreground">Simu · Phone</dt>
           <dd className="text-right">
             {sale.deviceId ?? 'Haikuuzwa kwenye simu · Not sold on a phone'}

@@ -151,7 +151,7 @@ export default async function ReportsPage({
       }
     >
       {/* The money first. Everything below explains it. */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Zilizoingia · Collected"
           value={money(report.totals.collectedTzs)}
@@ -233,7 +233,7 @@ export default async function ReportsPage({
       </p>
 
       {/* The two questions a day gets asked most, side by side. */}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title="Malipo · Payments" description="How the day was paid">
           {report.paymentBreakdown.length === 0 ? (
             <EmptyState title="Hakuna malipo siku hii · No payments this day" />
@@ -267,7 +267,7 @@ export default async function ReportsPage({
         </Panel>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title="Wafanyakazi · Who sold">
           {report.sellers.length === 0 ? (
             <EmptyState title="Hakuna mauzo siku hii · No sales this day" />
@@ -285,11 +285,11 @@ export default async function ReportsPage({
                 {report.sellers.map((row) => (
                   <TableRow key={row.userId}>
                     <TableCell className="font-medium">{row.name}</TableCell>
-                    <TableCell className="tabular text-right">{row.saleCount}</TableCell>
-                    <TableCell className="tabular text-right font-medium">
+                    <TableCell className="tabular whitespace-nowrap text-right">{row.saleCount}</TableCell>
+                    <TableCell className="tabular whitespace-nowrap text-right font-medium">
                       {money(row.salesTotalTzs)}
                     </TableCell>
-                    <TableCell className="tabular text-right text-warning-foreground">
+                    <TableCell className="tabular whitespace-nowrap text-right text-warning-foreground">
                       {row.debtTzs === 0 ? '—' : money(row.debtTzs)}
                     </TableCell>
                   </TableRow>
@@ -315,8 +315,8 @@ export default async function ReportsPage({
                 {report.debts.map((row) => (
                   <TableRow key={row.debtorName}>
                     <TableCell className="font-medium">{row.debtorName}</TableCell>
-                    <TableCell className="tabular text-right">{row.saleCount}</TableCell>
-                    <TableCell className="tabular text-right font-semibold text-warning-foreground">
+                    <TableCell className="tabular whitespace-nowrap text-right">{row.saleCount}</TableCell>
+                    <TableCell className="tabular whitespace-nowrap text-right font-semibold text-warning-foreground">
                       {money(row.amountTzs)}
                     </TableCell>
                   </TableRow>
@@ -355,8 +355,8 @@ export default async function ReportsPage({
                     <span className="font-medium">{row.productName}</span>{' '}
                     <span className="text-xs text-muted-foreground">{row.unitName}</span>
                   </TableCell>
-                  <TableCell className="tabular text-right">{row.quantity}</TableCell>
-                  <TableCell className="tabular text-right">
+                  <TableCell className="tabular whitespace-nowrap text-right">{row.quantity}</TableCell>
+                  <TableCell className="tabular whitespace-nowrap text-right">
                     {row.costTzs === null ? '—' : money(row.costTzs)}
                     {row.costIsPartial ? (
                       <span className="ml-1.5 text-xs text-muted-foreground">sehemu</span>
@@ -392,10 +392,10 @@ export default async function ReportsPage({
                       {row.branchName}
                     </Link>
                   </TableCell>
-                  <TableCell className="tabular text-right">{row.saleCount}</TableCell>
-                  <TableCell className="tabular text-right">{money(row.salesTotalTzs)}</TableCell>
-                  <TableCell className="tabular text-right">{money(row.debtTzs)}</TableCell>
-                  <TableCell className="tabular text-right font-medium">
+                  <TableCell className="tabular whitespace-nowrap text-right">{row.saleCount}</TableCell>
+                  <TableCell className="tabular whitespace-nowrap text-right">{money(row.salesTotalTzs)}</TableCell>
+                  <TableCell className="tabular whitespace-nowrap text-right">{money(row.debtTzs)}</TableCell>
+                  <TableCell className="tabular whitespace-nowrap text-right font-medium">
                     {money(row.collectedTzs)}
                   </TableCell>
                 </TableRow>
@@ -404,14 +404,14 @@ export default async function ReportsPage({
             <TableFooter>
               <TableRow>
                 <TableCell className="font-semibold">Jumla · Total</TableCell>
-                <TableCell className="tabular text-right">{comparison.totals.saleCount}</TableCell>
-                <TableCell className="tabular text-right">
+                <TableCell className="tabular whitespace-nowrap text-right">{comparison.totals.saleCount}</TableCell>
+                <TableCell className="tabular whitespace-nowrap text-right">
                   {money(comparison.totals.salesTotalTzs)}
                 </TableCell>
-                <TableCell className="tabular text-right">
+                <TableCell className="tabular whitespace-nowrap text-right">
                   {money(comparison.totals.debtTzs)}
                 </TableCell>
-                <TableCell className="tabular text-right font-semibold">
+                <TableCell className="tabular whitespace-nowrap text-right font-semibold">
                   {money(comparison.totals.collectedTzs)}
                 </TableCell>
               </TableRow>
@@ -453,8 +453,8 @@ export default async function ReportsPage({
                         ) : null}
                       </span>
                     </TableCell>
-                    <TableCell className="tabular text-right">{transaction.lineCount}</TableCell>
-                    <TableCell className="tabular text-right font-medium">
+                    <TableCell className="tabular whitespace-nowrap text-right">{transaction.lineCount}</TableCell>
+                    <TableCell className="tabular whitespace-nowrap text-right font-medium">
                       {money(transaction.totalTzs)}
                     </TableCell>
                     <TableCell className="text-muted-foreground">

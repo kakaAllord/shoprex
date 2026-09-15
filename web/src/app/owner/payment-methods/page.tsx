@@ -158,7 +158,7 @@ export default async function PaymentMethodsPage() {
           label="Ongeza njia · Add method"
           busyLabel="Inaongeza..."
         >
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field htmlFor="method-name" label="Jina · Name">
               <Input id="method-name" name="name" required placeholder="M-Pesa" />
             </Field>

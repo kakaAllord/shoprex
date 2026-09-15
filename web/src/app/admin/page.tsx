@@ -57,7 +57,7 @@ export default async function AdminPage() {
       title="Maduka yote · Shop accounts"
       lede="Akaunti za maduka kwenye jukwaa la Shoprex — kufungua duka jipya na mmiliki wake, na kusimamisha au kurudisha akaunti."
     >
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StatCard label="Maduka · Shops" value={businesses.length} />
         <StatCard label="Hai · Active" value={businesses.length - suspended.length} />
         <StatCard
@@ -93,8 +93,8 @@ export default async function AdminPage() {
               {businesses.map((business) => (
                 <TableRow key={business.id}>
                   <TableCell className="font-medium">{business.name}</TableCell>
-                  <TableCell className="tabular text-right">{business.branchCount}</TableCell>
-                  <TableCell className="tabular text-right">{business.userCount}</TableCell>
+                  <TableCell className="tabular whitespace-nowrap text-right">{business.branchCount}</TableCell>
+                  <TableCell className="tabular whitespace-nowrap text-right">{business.userCount}</TableCell>
                   <TableCell className="text-muted-foreground">{business.timezone}</TableCell>
                   <TableCell className="text-muted-foreground">
                     {day(business.createdAt)}
@@ -141,7 +141,7 @@ export default async function AdminPage() {
           label="Fungua duka · Create shop"
           busyLabel="Inafungua..."
         >
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field htmlFor="shop-name" label="Jina la duka · Shop name">
               <Input id="shop-name" name="name" required minLength={2} placeholder="Duka la Mfano" />
             </Field>

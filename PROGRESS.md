@@ -19,7 +19,7 @@ If Part A and Part B ever disagree (e.g. the table says "Complete" but a section
 | 6 | Next.js owner and admin web app | Complete | Yes — every clause driven end to end over HTTP by all four roles, plus a live console smoke test, see §6 | 2026-08-23 |
 | 7 | Reports and PDF | Complete | Yes — every clause driven end to end over real HTTP, plus a live console and PDF-download check against a running backend and web server, see §7 | 2026-08-24 |
 | 8 | Pilot hardening and launch | In progress | Partly — every code deliverable is verified by real tests (see §8); **low-end Android testing and the pilot shop itself are outstanding**. Distribution and over-the-air updates configured 2026-08-25, unproven against EAS, see §8a | 2026-08-25 |
-| 9 | Web console on shadcn/ui | In progress | Partly — the full three-surface suite passes at **1,186** and the console builds clean (see §9); **nothing has been looked at in a real browser**, which for a redesign is most of the check | 2026-09-15 |
+| 9 | Web console on shadcn/ui | In progress | Partly — suite passes at **1,186**, and all 9 console routes were **driven in a real browser** at desktop and phone width, which found and fixed two layout bugs (see §9). What remains is a human eye on each screen and every write clicked through | 2026-09-15 |
 
 **Status values:** `Not started` / `In progress` / `Blocked` / `Complete`. Only mark `Complete` when the acceptance-check column says `Yes`, backed by a real test run referenced in that phase's section below.
 
@@ -29,7 +29,9 @@ Phase 9 rebuilt the **web console** on shadcn/ui with a collapsible sidebar, lig
 
 The suite stands at **1,186** — backend unit 260 (unchanged), backend e2e 613 (unchanged), web 80 → **87**, mobile 226 (unchanged). Backend and mobile were not touched.
 
-**Exact next action:** open the console in a real browser and walk §9's *Manual testing*. Every screen was rewritten; a passing component test says the markup renders, not that the page reads. Nothing in Phase 9 has been seen by a human eye.
+A headless browser then drove all nine console routes at 1440px and 400px, which found **two real layout bugs that no test would ever have caught** — see §9. Both are fixed.
+
+**Exact next action:** walk §9's *Manual testing* by hand. The automated pass proves no screen throws and no screen overflows; it does not prove any of them **reads**, and not one write has been clicked through a form.
 
 **The former text for Phase 8 follows, and still stands.**
 
@@ -2122,7 +2124,7 @@ It was untracked build output left over from before the Duka→Shoprex rename: `
 
 ### §9 — The web console on shadcn/ui (2026-09-15)
 
-**Status:** In progress. **Verified:** Partly — the full three-surface suite passes at **1,186**, the console typechecks and builds clean, and 7 new web tests cover what is genuinely new. **Nothing has been opened in a real browser**, which for a redesign is most of the check. **Date:** 2026-09-15.
+**Status:** In progress. **Verified:** Partly — the suite passes at **1,186**, the console typechecks and builds clean, 7 new web tests cover what is genuinely new, and **all nine console routes were driven in a real headless browser** at 1440px and 400px against a live backend with real sales in it. That pass found two layout bugs, both fixed. What it does not cover is a human reading each screen, or any write clicked through a form. **Date:** 2026-09-15.
 
 **Why this is a phase and not part of Phase 8.** The team asked for the console to be rebuilt on shadcn/ui and for a green-and-blue palette. Phase 8's remaining deliverables are physical — a low-end Android phone, a real pilot shop — and folding a console redesign into it would have let its acceptance check quietly stop meaning what it says. The owner chose a new phase on 2026-09-15; Phase 8 stays open and honest.
 
@@ -2206,9 +2208,21 @@ Lint, typecheck, and build pass on backend and web; mobile typecheck and tests p
 
 **One real regression was caught by an existing test**, and it is the kind worth recording. The new `Alert` component set `role="alert"` on everything, which meant a **403 started announcing itself to a screen reader as an error**. Phase 6 had settled deliberately that a permission refusal is the shop's own rule rather than a fault. `states.test.tsx` asserted `queryByRole('alert')` was null and failed. The fix was to the component, not the test: `Alert` now carries **no implicit role**, and only genuine faults pass `role="alert"`. Red announces; amber describes.
 
+#### What driving a real browser found
+
+Playwright against a live backend, signed in as the seeded owner with five sales and a stock delivery in the database, walking all nine console routes at **1440px** and **400px**. Two bugs, neither of which any unit test would have seen:
+
+**1. Ripoti scrolled sideways at phone width.** 414px of content in a 400px window. The cause is worth writing down because it will recur: a `grid` with only `lg:grid-cols-2` on it has **no column template below `lg`**, so its single implicit column is an `auto` track — and an `auto` track sizes to its content's *max-content* width. The tables inside were dragging the grid wider than the page. `overflow-x-auto` on the table container did not save it, because the card had already been stretched. The fix is `grid-cols-1` as an explicit base on every responsive grid, which is `repeat(1, minmax(0, 1fr))` and caps at the container. **Twelve grids in this codebase had the bug**; all twelve are fixed.
+
+**2. Money wrapped mid-figure.** `TSh 218,000` broke across two lines in narrow table columns. Right-aligned tabular cells are always figures, so they are now `whitespace-nowrap`.
+
+Also confirmed, in passing: the console **behaved correctly under a rate limit**. The verification script hammered `/auth/me` hard enough to hit the 120/min bucket, and the console sent the reader to `/login?problem=backend` rather than pretending the session had expired — which is exactly the Phase 6 decision working, observed rather than assumed.
+
+The automated browser pass now reports clean: no page errors and no horizontal overflow on nine routes at two widths.
+
 #### Manual testing
 
-**Nothing below has been done.** Every screen in the console was rewritten and none has been looked at. The automated tests prove the markup renders and the behaviour holds; they say nothing about whether a page reads.
+**The walkthrough below has NOT been done, and it is still most of the check.** A headless browser proves no screen throws and no screen overflows. It does not know whether a page *reads*, whether a colour is right, or whether a button is where a thumb expects it — and it has not clicked a single write through a form.
 
 **Setup**
 
@@ -2278,12 +2292,16 @@ Each of these goes through a rewritten `ActionForm`. Do all of them:
 
 **What has no automated coverage at all**
 
-1. **Every screen's appearance.** 87 web tests assert behaviour and accessible names. Not one of them has seen a colour, a spacing, or a layout.
-2. **Dark mode in a browser.** The palette is arithmetic that was computed and validated; no photons have been involved.
-3. **The sidebar on a touch screen.** The drawer, the swipe, the tap targets.
-4. **`prefers-reduced-motion`.** Written, never observed.
-5. **The PDF download** from a real browser into a real Downloads folder — carried over from §7 and still true.
-6. **Anything at phone width** — carried over from §6 and still true.
+Narrowed by the browser pass above, but most of it stands:
+
+1. **Whether any screen reads well.** 87 web tests assert behaviour; the browser pass asserts nothing overflows. Neither has an opinion about hierarchy, spacing, or whether a figure is where the eye goes first.
+2. **Every write, clicked through its own form.** The forms were all rebuilt on a new `ActionForm`. Not one has been submitted through the UI — only through the API, by the seed script.
+3. **The sidebar's interactions.** Collapse, expand, the tooltips when collapsed, `Ctrl`-`B`, and the mobile drawer opening. The *state* is unit-tested; the gestures are not.
+4. **The theme toggle as a control.** The browser pass set the theme by stamping the class directly, not by opening the menu and clicking. The menu itself is unit-tested, the round trip is not.
+5. **The manager's view.** Fewer sidebar items, the amber 403. Unit-tested; never seen.
+6. **`prefers-reduced-motion`.** Written, never observed.
+7. **A real touch screen**, and **the PDF download** into a real Downloads folder — both carried over from §7 and still true.
+8. **Colour on a real display.** The palette is arithmetic that was computed and validated. Screenshots came back from a headless renderer; no photons have reached an eye.
 
 #### Decisions made
 
@@ -2299,12 +2317,13 @@ Each of these goes through a rewritten `ActionForm`. Do all of them:
 
 #### Known issues / risks
 
-1. **Nothing has been looked at.** Repeating it because it is the whole of the risk in this phase.
-2. **The hand-written `ui/` components will not match a future upstream shadcn revision** line for line. Adding a component with the CLI later is safe; expecting `diff` against upstream to be clean is not.
-3. **`web/` still has no ESLint config** — carried from §1. Typecheck, Vitest, and the Next build cover it. Tailwind class names in particular are unlinted, so a typo is invisible until somebody looks at the page.
-4. **The five-colour chart ramp is only exercised at three colours.** A shop with four or more payment methods reaches chart-4 and chart-5, whose worst-case tritan separation is ΔE 3.9 — legal only because every bar is direct-labelled. If a categorical chart is ever added *without* labels, that stops being true.
-5. **`components.json` points at a host this environment cannot reach.** Harmless, and correct for anyone else.
-6. Issues carried from §1–§8a all still stand, including §8's three blockers — the backend is still hosted nowhere.
+1. **No human has read these screens.** The browser pass narrowed the risk; it did not remove it. This is still the largest unknown in the phase.
+2. **The `grid-cols-1` rule is not enforced by anything.** A responsive grid written without an explicit base column reintroduces bug 1 above, silently, and only at narrow widths. `web/` has no ESLint config to catch it (issue 3 below), so it is a thing to know rather than a thing that is guarded.
+3. **The hand-written `ui/` components will not match a future upstream shadcn revision** line for line. Adding a component with the CLI later is safe; expecting `diff` against upstream to be clean is not.
+4. **`web/` still has no ESLint config** — carried from §1. Typecheck, Vitest, and the Next build cover it. Tailwind class names in particular are unlinted, so a typo is invisible until somebody looks at the page.
+5. **The five-colour chart ramp is only exercised at three colours.** A shop with four or more payment methods reaches chart-4 and chart-5, whose worst-case tritan separation is ΔE 3.9 — legal only because every bar is direct-labelled. If a categorical chart is ever added *without* labels, that stops being true.
+6. **`components.json` points at a host this environment cannot reach.** Harmless, and correct for anyone else.
+7. Issues carried from §1–§8a all still stand, including §8's three blockers — the backend is still hosted nowhere.
 
 #### Blocked / awaiting user
 
@@ -2316,6 +2335,7 @@ Each of these goes through a rewritten `ActionForm`. Do all of them:
 
 #### Handoff notes
 
+- **Every responsive grid needs `grid-cols-1` as its base.** `grid gap-4 lg:grid-cols-2` has an `auto` track below `lg`, which sizes to max-content and drags the page sideways as soon as a table is inside it. This shipped in twelve places and was found only by measuring a real browser at 400px. Nothing lints for it.
 - **Add a colour by adding a token**, in `:root` *and* `.dark`, then exposing it in the `@theme inline` block. Never write a hex value into a component.
 - **`--primary` and the chart ramp are measured.** The reasoning is in the file's own comment. Re-measure before nudging either; the tools are `node scripts/validate_palette.js` from the dataviz skill for the ramp, and any contrast checker for the button.
 - **Dark is stepped, not flipped.** If you add a token to `:root`, add a deliberate dark value too — do not assume an inversion will do.
