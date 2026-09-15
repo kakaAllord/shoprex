@@ -1,4 +1,4 @@
-import { ALL_PERMISSIONS, PERMISSION_LABELS, type UserPermission } from '../lib/api/staff';
+import { ALL_PERMISSIONS, PERMISSION_LABELS, type UserPermission } from '@/lib/api/staff';
 
 /**
  * The permission boxes, wherever they appear.
@@ -16,12 +16,12 @@ export function PermissionChecks({
   idPrefix: string;
 }) {
   return (
-    <fieldset className="shoprex-checks" style={{ border: 'none', padding: 0, margin: '4px 0 16px' }}>
+    <fieldset className="flex flex-wrap gap-x-4 gap-y-2 border-0 p-0">
       {ALL_PERMISSIONS.map((permission) => (
         <label
           key={permission}
-          className="shoprex-check"
           htmlFor={`${idPrefix}-${permission}`}
+          className="flex cursor-pointer items-center gap-2 text-sm"
         >
           <input
             id={`${idPrefix}-${permission}`}
@@ -29,6 +29,7 @@ export function PermissionChecks({
             name="permissions"
             value={permission}
             defaultChecked={granted.includes(permission)}
+            className="size-4 rounded border-input accent-primary"
           />
           {PERMISSION_LABELS[permission]}
         </label>

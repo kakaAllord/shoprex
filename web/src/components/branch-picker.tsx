@@ -1,5 +1,6 @@
 import Link from 'next/link';
-import type { BranchView } from '../lib/api/organization';
+import type { BranchView } from '@/lib/api/organization';
+import { cn } from '@/lib/utils';
 
 /**
  * Which branch a screen is looking at.
@@ -13,31 +14,47 @@ export function BranchPicker({
   branches,
   selected,
   basePath,
+  query,
 }: {
   branches: BranchView[];
   selected: string;
   basePath: string;
+  /** Extra query kept across a branch change — a chosen date, usually. */
+  query?: Record<string, string | undefined>;
 }) {
   if (branches.length <= 1) {
     return null;
   }
 
+  const suffix = Object.entries(query ?? {})
+    .filter(([, value]) => value)
+    .map(([key, value]) => `&${key}=${value}`)
+    .join('');
+
   return (
-    <div className="shoprex-branchbar" role="navigation" aria-label="Tawi · Branch">
-      {branches.map((branch) => (
-        <Link
-          key={branch.id}
-          href={`${basePath}?branch=${branch.id}`}
-          className={
-            branch.id === selected
-              ? 'shoprex-branchbar__link shoprex-branchbar__link--on'
-              : 'shoprex-branchbar__link'
-          }
-          aria-current={branch.id === selected ? 'page' : undefined}
-        >
-          {branch.name}
-        </Link>
-      ))}
-    </div>
+    <nav
+      aria-label="Tawi · Branch"
+      className="inline-flex flex-wrap items-center gap-1 rounded-lg bg-muted p-1"
+    >
+      {branches.map((branch) => {
+        const active = branch.id === selected;
+
+        return (
+          <Link
+            key={branch.id}
+            href={`${basePath}?branch=${branch.id}${suffix}`}
+            aria-current={active ? 'page' : undefined}
+            className={cn(
+              'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+              active
+                ? 'bg-card text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {branch.name}
+          </Link>
+        );
+      })}
+    </nav>
   );
 }

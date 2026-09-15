@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
+import { ThemeProvider } from '@/components/theme-provider';
 import '../styles/globals.css';
 
 export const metadata: Metadata = {
@@ -10,8 +11,13 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="sw">
-      <body>{children}</body>
+    // `suppressHydrationWarning` because next-themes stamps the resolved theme
+    // onto <html> before React hydrates — the server cannot know it, and that
+    // one attribute mismatch is expected rather than a bug to chase.
+    <html lang="sw" suppressHydrationWarning>
+      <body>
+        <ThemeProvider>{children}</ThemeProvider>
+      </body>
     </html>
   );
 }

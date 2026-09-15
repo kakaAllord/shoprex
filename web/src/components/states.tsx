@@ -1,26 +1,37 @@
 import type { ReactNode } from 'react';
-import { ShoprexApiError } from '../lib/api/client';
+import {
+  AlertCircleIcon,
+  InboxIcon,
+  RefreshCwIcon,
+  ShieldAlertIcon,
+  TriangleAlertIcon,
+} from 'lucide-react';
+import Link from 'next/link';
+import { ShoprexApiError } from '@/lib/api/client';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 
 /**
  * The states nobody looks at until they happen.
  *
- * Empty, error, and permission-denied are written once here so every screen
- * shows the same thing, and so that "the branch has nothing in it" never
- * renders as a blank rectangle somebody reads as a broken page.
+ * Empty, loading, error, and permission-denied are written once here so every
+ * screen shows the same thing, and so that "the branch has nothing in it"
+ * never renders as a blank rectangle somebody reads as a broken page.
  */
 
 export function EmptyState({ title, hint }: { title: string; hint?: string }) {
   return (
-    <div className="shoprex-state">
-      <p className="shoprex-state__title">{title}</p>
-      {hint ? <p className="shoprex-state__hint">{hint}</p> : null}
+    <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed px-6 py-10 text-center">
+      <InboxIcon className="size-5 text-muted-foreground" aria-hidden="true" />
+      <p className="text-sm font-medium">{title}</p>
+      {hint ? <p className="max-w-prose text-xs text-muted-foreground">{hint}</p> : null}
     </div>
   );
 }
 
 /**
- * The state this file used to be missing, and the one a pilot shop meets most.
- *
  * Every console screen is a server component that awaits the backend before it
  * renders anything, so on a slow connection the browser sat on the *previous*
  * page with no indication that anything was happening — the reader's only
@@ -33,14 +44,16 @@ export function EmptyState({ title, hint }: { title: string; hint?: string }) {
  */
 export function LoadingState({ label, rows = 3 }: { label: string; rows?: number }) {
   return (
-    <div className="shoprex-loading" role="status" aria-live="polite">
-      <p className="shoprex-loading__label">{label}</p>
-      <div className="shoprex-loading__bars" aria-hidden="true">
+    <Card role="status" aria-live="polite">
+      <CardHeader>
+        <CardTitle className="text-xs font-medium text-muted-foreground">{label}</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2.5" aria-hidden="true">
         {Array.from({ length: rows }, (_, index) => (
-          <span key={index} className="shoprex-loading__bar" />
+          <Skeleton key={index} className="h-4" style={{ width: `${92 - index * 13}%` }} />
         ))}
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -54,13 +67,16 @@ export function LoadingState({ label, rows = 3 }: { label: string; rows?: number
 export function ErrorState({ error, retryHref }: { error: unknown; retryHref?: string }) {
   if (error instanceof ShoprexApiError && error.status === 403) {
     return (
-      <div className="shoprex-state shoprex-state--denied">
-        <p className="shoprex-state__title">Huna ruhusa · You do not have permission</p>
-        <p className="shoprex-state__hint">{error.message}</p>
-        <p className="shoprex-state__hint">
-          Mmiliki wa duka ndiye anayetoa ruhusa hii · The shop owner grants this.
-        </p>
-      </div>
+      <Alert variant="warning">
+        <ShieldAlertIcon />
+        <div className="flex flex-col gap-1">
+          <AlertTitle>Huna ruhusa · You do not have permission</AlertTitle>
+          <AlertDescription>{error.message}</AlertDescription>
+          <AlertDescription>
+            Mmiliki wa duka ndiye anayetoa ruhusa hii · The shop owner grants this.
+          </AlertDescription>
+        </div>
+      </Alert>
     );
   }
 
@@ -70,15 +86,21 @@ export function ErrorState({ error, retryHref }: { error: unknown; retryHref?: s
       : 'Seva haipatikani · Shoprex could not reach the backend.';
 
   return (
-    <div className="shoprex-state shoprex-state--error" role="alert">
-      <p className="shoprex-state__title">Kuna hitilafu · Something went wrong</p>
-      <p className="shoprex-state__hint">{message}</p>
-      {retryHref ? (
-        <a className="shoprex-linkbutton" href={retryHref}>
-          Jaribu tena · Try again
-        </a>
-      ) : null}
-    </div>
+    <Alert variant="destructive" role="alert">
+      <AlertCircleIcon />
+      <div className="flex flex-col items-start gap-2">
+        <AlertTitle>Kuna hitilafu · Something went wrong</AlertTitle>
+        <AlertDescription>{message}</AlertDescription>
+        {retryHref ? (
+          <Button asChild variant="outline" size="sm">
+            <Link href={retryHref}>
+              <RefreshCwIcon />
+              Jaribu tena · Try again
+            </Link>
+          </Button>
+        ) : null}
+      </div>
+    </Alert>
   );
 }
 
@@ -91,28 +113,37 @@ export function ErrorState({ error, retryHref }: { error: unknown; retryHref?: s
  */
 export function OwnerOnlyNote({ what }: { what: string }) {
   return (
-    <p className="shoprex-note shoprex-note--owner">
+    <p className="flex items-center gap-2 text-xs text-muted-foreground">
+      <TriangleAlertIcon className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
       {what} hufanywa na mmiliki wa duka · Only the shop owner can do this.
     </p>
   );
 }
 
+/** A titled section. Kept as `Panel` so every screen did not have to change at once. */
 export function Panel({
   title,
+  description,
   action,
   children,
+  className,
 }: {
   title: string;
+  description?: string;
   action?: ReactNode;
   children: ReactNode;
+  className?: string;
 }) {
   return (
-    <section className="shoprex-card">
-      <div className="shoprex-card__head">
-        <h2 className="shoprex-card__title">{title}</h2>
+    <Card className={className}>
+      <CardHeader className="relative flex-row items-start justify-between gap-3 space-y-0">
+        <div className="flex flex-col gap-1">
+          <CardTitle>{title}</CardTitle>
+          {description ? <CardDescription>{description}</CardDescription> : null}
+        </div>
         {action}
-      </div>
-      {children}
-    </section>
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
   );
 }

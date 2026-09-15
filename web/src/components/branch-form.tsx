@@ -1,5 +1,6 @@
-import { createBranchAction } from '../app/owner/actions';
-import { ActionForm } from './action-form';
+import { createBranchAction } from '@/app/owner/actions';
+import { ActionForm } from '@/components/action-form';
+import { Input } from '@/components/ui/input';
 
 /**
  * Owner-only: name a new branch. The backend decides which business it lands
@@ -12,13 +13,18 @@ import { ActionForm } from './action-form';
  */
 export function BranchForm() {
   return (
-    <ActionForm action={createBranchAction} label="Ongeza tawi · Add branch" busyLabel="Inaongeza..." inline>
-      <input
+    <ActionForm
+      action={createBranchAction}
+      label="Ongeza tawi · Add branch"
+      busyLabel="Inaongeza..."
+      inline
+    >
+      <Input
         type="text"
         name="name"
         required
         minLength={2}
-        className="shoprex-input"
+        className="sm:w-64"
         placeholder="Jina la tawi · Branch name"
         aria-label="Jina la tawi · Branch name"
       />

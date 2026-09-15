@@ -90,15 +90,12 @@ describe('LoadingState', () => {
   it('draws the shape of the table that is coming, so the page does not jump', () => {
     const { container } = render(<LoadingState label="Inapakia" rows={4} />);
 
-    expect(container.querySelectorAll('.shoprex-loading__bar')).toHaveLength(4);
+    expect(container.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(4);
   });
 
   it('hides the decoration from anybody listening rather than reading', () => {
     const { container } = render(<LoadingState label="Inapakia" />);
 
-    expect(container.querySelector('.shoprex-loading__bars')).toHaveAttribute(
-      'aria-hidden',
-      'true',
-    );
+    expect(container.querySelector('[aria-hidden="true"]')?.querySelector('[data-slot="skeleton"]')).not.toBeNull();
   });
 });

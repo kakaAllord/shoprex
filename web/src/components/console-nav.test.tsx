@@ -2,7 +2,16 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { ConsoleNav } from './console-nav';
+import { SidebarProvider } from './ui/sidebar';
 import type { AuthProfile } from '../lib/api/auth';
+
+/**
+ * `ConsoleNav` renders sidebar menu items, which read their collapsed state
+ * from the sidebar's context — so the tests mount it in the frame it actually
+ * lives in. What is asserted below has not changed: the owner's destinations,
+ * the manager's shorter list, and where the reader currently is.
+ */
+const inSidebar = (ui: React.ReactNode) => render(<SidebarProvider>{ui}</SidebarProvider>);
 
 const profile = (role: AuthProfile['role']): AuthProfile => ({
   id: 'u1',
@@ -17,7 +26,7 @@ const profile = (role: AuthProfile['role']): AuthProfile => ({
 
 describe('ConsoleNav', () => {
   it('gives the owner every destination the console has', () => {
-    render(<ConsoleNav profile={profile('OWNER')} current="/owner" />);
+    inSidebar(<ConsoleNav profile={profile('OWNER')} current="/owner" />);
 
     for (const label of [/Muhtasari/, /Ripoti/, /Mauzo/, /Stoo/, /Bidhaa/, /Matawi/, /Wafanyakazi/, /Simu/, /Malipo/]) {
       expect(screen.getByRole('link', { name: label })).toBeInTheDocument();
@@ -28,7 +37,7 @@ describe('ConsoleNav', () => {
     // A dimmed control teaches somebody that Shoprex is broken; an absent one,
     // paired with the written note on each owner-only page, teaches them who
     // to ask. The backend refuses the action either way.
-    render(<ConsoleNav profile={profile('MANAGER')} current="/owner" />);
+    inSidebar(<ConsoleNav profile={profile('MANAGER')} current="/owner" />);
 
     expect(screen.queryByRole('link', { name: /Matawi/ })).toBeNull();
     expect(screen.queryByRole('link', { name: /Malipo/ })).toBeNull();
@@ -40,7 +49,7 @@ describe('ConsoleNav', () => {
   });
 
   it('marks where the reader currently is', () => {
-    render(<ConsoleNav profile={profile('OWNER')} current="/owner/sales" />);
+    inSidebar(<ConsoleNav profile={profile('OWNER')} current="/owner/sales" />);
 
     expect(screen.getByRole('link', { name: /Mauzo/ })).toHaveAttribute(
       'aria-current',

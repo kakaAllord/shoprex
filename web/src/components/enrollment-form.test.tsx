@@ -63,7 +63,7 @@ describe('EnrollmentForm, once a code has been issued', () => {
   it('paints the QR as real SVG rather than escaping it into visible text', () => {
     const { container } = render(<EnrollmentForm branches={branches} />);
 
-    const svg = container.querySelector('.shoprex-secret__qr svg');
+    const svg = container.querySelector('[role="img"] svg');
 
     expect(svg).not.toBeNull();
     expect(svg?.querySelectorAll('path').length).toBeGreaterThan(0);

@@ -1,9 +1,21 @@
-import { ActionForm } from '../../components/action-form';
-import { ConsoleHeader } from '../../components/console-header';
-import { EmptyState, ErrorState, Panel } from '../../components/states';
-import { day } from '../../lib/format';
-import { requireConsole } from '../../lib/api/guard';
-import { fetchAllBusinesses } from '../../lib/api/organization';
+import { ActionForm } from '@/components/action-form';
+import { AdminShell } from '@/components/admin-shell';
+import { EmptyState, ErrorState, Panel } from '@/components/states';
+import { StatCard } from '@/components/stat-card';
+import { Field } from '@/components/field';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { day } from '@/lib/format';
+import { requireConsole } from '@/lib/api/guard';
+import { fetchAllBusinesses } from '@/lib/api/organization';
 import { createBusinessAction, setBusinessActiveAction } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -31,191 +43,138 @@ export default async function AdminPage() {
     businesses = await fetchAllBusinesses(token);
   } catch (error) {
     return (
-      <main className="shoprex-shell shoprex-shell--wide">
-        <ConsoleHeader profile={profile} />
-        <h1 className="shoprex-title">Maduka yote</h1>
+      <AdminShell profile={profile} title="Maduka yote">
         <ErrorState error={error} retryHref="/admin" />
-      </main>
+      </AdminShell>
     );
   }
 
   const suspended = businesses.filter((business) => !business.isActive);
 
   return (
-    <main className="shoprex-shell shoprex-shell--wide">
-      <ConsoleHeader profile={profile} />
-
-      <h1 className="shoprex-title">Maduka yote · Shop accounts</h1>
-      <p className="shoprex-lede">
-        Akaunti za maduka kwenye jukwaa la Shoprex. Kufungua duka jipya na mmiliki wake,
-        na kusimamisha au kurudisha akaunti. Shop accounts on the platform — onboarding,
-        suspension, and restoration.
-      </p>
-
-      <div className="shoprex-metrics">
-        <div className="shoprex-metric">
-          <div className="shoprex-metric__value">{businesses.length}</div>
-          <div className="shoprex-metric__label">Maduka · Shops</div>
-        </div>
-        <div className="shoprex-metric">
-          <div className="shoprex-metric__value">{businesses.length - suspended.length}</div>
-          <div className="shoprex-metric__label">Hai · Active</div>
-        </div>
-        <div className="shoprex-metric">
-          <div className="shoprex-metric__value">{suspended.length}</div>
-          <div className="shoprex-metric__label">Zimesimamishwa · Suspended</div>
-        </div>
+    <AdminShell
+      profile={profile}
+      title="Maduka yote · Shop accounts"
+      lede="Akaunti za maduka kwenye jukwaa la Shoprex — kufungua duka jipya na mmiliki wake, na kusimamisha au kurudisha akaunti."
+    >
+      <div className="grid gap-4 sm:grid-cols-3">
+        <StatCard label="Maduka · Shops" value={businesses.length} />
+        <StatCard label="Hai · Active" value={businesses.length - suspended.length} />
+        <StatCard
+          label="Zimesimamishwa · Suspended"
+          value={suspended.length}
+          tone={suspended.length > 0 ? 'owed' : 'default'}
+        />
       </div>
 
-      <Panel title={`Maduka · Businesses (${businesses.length})`}>
+      <Panel
+        title={`Maduka · Businesses (${businesses.length})`}
+        description="Kusimamisha hakufuti chochote — bidhaa, stoo, mauzo na historia hubaki, na duka hurudi zima likirudishwa."
+      >
         {businesses.length === 0 ? (
           <EmptyState
             title="Hakuna duka bado · No shops yet"
             hint="Fungua duka la kwanza hapa chini, au subiri mmiliki ajisajili mwenyewe."
           />
         ) : (
-          <div className="shoprex-tablewrap">
-            <table className="shoprex-table">
-              <thead>
-                <tr>
-                  <th>Duka · Business</th>
-                  <th className="shoprex-num">Matawi</th>
-                  <th className="shoprex-num">Watumiaji</th>
-                  <th>Saa za eneo</th>
-                  <th>Limefunguliwa · Created</th>
-                  <th>Hali · Status</th>
-                  <th>&nbsp;</th>
-                </tr>
-              </thead>
-              <tbody>
-                {businesses.map((business) => (
-                  <tr
-                    key={business.id}
-                    className={business.isActive ? undefined : 'shoprex-warnrow'}
-                  >
-                    <td>{business.name}</td>
-                    <td className="shoprex-num">{business.branchCount}</td>
-                    <td className="shoprex-num">{business.userCount}</td>
-                    <td>{business.timezone}</td>
-                    <td>{day(business.createdAt)}</td>
-                    <td>
-                      <span
-                        className={
-                          business.isActive
-                            ? 'shoprex-status shoprex-status--ok'
-                            : 'shoprex-status shoprex-status--warn'
-                        }
-                      >
-                        {business.isActive ? 'Hai · Active' : 'Imesimamishwa · Suspended'}
-                      </span>
-                    </td>
-                    <td>
-                      <ActionForm
-                        action={setBusinessActiveAction}
-                        label={
-                          business.isActive
-                            ? 'Simamisha · Suspend'
-                            : 'Rudisha · Restore'
-                        }
-                        busyLabel="..."
-                        variant={business.isActive ? 'danger' : 'quiet'}
-                        confirm={
-                          business.isActive
-                            ? `Simamisha "${business.name}"? Hakuna atakayeweza kuingia, simu zote zitakataliwa, na hata vipindi vilivyofunguliwa vitakatishwa mara moja. Hakuna kinachofutwa. Suspend this shop? Everyone is locked out immediately — nothing is deleted.`
-                            : undefined
-                        }
-                      >
-                        <input type="hidden" name="businessId" value={business.id} />
-                        <input
-                          type="hidden"
-                          name="isActive"
-                          value={business.isActive ? 'false' : 'true'}
-                        />
-                      </ActionForm>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Duka · Business</TableHead>
+                <TableHead className="text-right">Matawi</TableHead>
+                <TableHead className="text-right">Watumiaji</TableHead>
+                <TableHead>Saa za eneo</TableHead>
+                <TableHead>Limefunguliwa</TableHead>
+                <TableHead>Hali · Status</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {businesses.map((business) => (
+                <TableRow key={business.id}>
+                  <TableCell className="font-medium">{business.name}</TableCell>
+                  <TableCell className="tabular text-right">{business.branchCount}</TableCell>
+                  <TableCell className="tabular text-right">{business.userCount}</TableCell>
+                  <TableCell className="text-muted-foreground">{business.timezone}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {day(business.createdAt)}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={business.isActive ? 'success' : 'warning'}>
+                      {business.isActive ? 'Hai · Active' : 'Imesimamishwa'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <ActionForm
+                      action={setBusinessActiveAction}
+                      label={business.isActive ? 'Simamisha · Suspend' : 'Rudisha · Restore'}
+                      busyLabel="..."
+                      className="items-end"
+                      variant={business.isActive ? 'danger' : 'quiet'}
+                      confirm={
+                        business.isActive
+                          ? `Simamisha "${business.name}"? Hakuna atakayeweza kuingia, simu zote zitakataliwa, na hata vipindi vilivyofunguliwa vitakatishwa mara moja. Hakuna kinachofutwa. Suspend this shop? Everyone is locked out immediately — nothing is deleted.`
+                          : undefined
+                      }
+                    >
+                      <input type="hidden" name="businessId" value={business.id} />
+                      <input
+                        type="hidden"
+                        name="isActive"
+                        value={business.isActive ? 'false' : 'true'}
+                      />
+                    </ActionForm>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
-
-        <p className="shoprex-note">
-          Kusimamisha hakufuti chochote. Bidhaa, stoo, mauzo na historia yote hubaki kama
-          ilivyo, na duka hurudi zima likirudishwa. Suspension deletes nothing — the shop
-          comes back whole.
-        </p>
       </Panel>
 
-      <Panel title="Fungua duka jipya · Onboard a shop">
+      <Panel
+        title="Fungua duka jipya · Onboard a shop"
+        description="Duka na mmiliki wake hufunguliwa pamoja, na njia tatu za malipo huwekwa mara moja — Taslimu, Pesa ya simu, na Deni."
+      >
         <ActionForm
           action={createBusinessAction}
           label="Fungua duka · Create shop"
           busyLabel="Inafungua..."
         >
-          <div className="shoprex-fieldgrid">
-            <div className="shoprex-field">
-              <label className="shoprex-label" htmlFor="shop-name">
-                Jina la duka · Shop name
-              </label>
-              <input
-                id="shop-name"
-                name="name"
-                required
-                minLength={2}
-                className="shoprex-input"
-                placeholder="Duka la Mfano"
-              />
-            </div>
-            <div className="shoprex-field">
-              <label className="shoprex-label" htmlFor="owner-name">
-                Jina la mmiliki · Owner name
-              </label>
-              <input
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field htmlFor="shop-name" label="Jina la duka · Shop name">
+              <Input id="shop-name" name="name" required minLength={2} placeholder="Duka la Mfano" />
+            </Field>
+            <Field htmlFor="owner-name" label="Jina la mmiliki · Owner name">
+              <Input
                 id="owner-name"
                 name="ownerFullName"
                 required
                 minLength={2}
-                className="shoprex-input"
                 placeholder="Asha Mwakalinga"
               />
-            </div>
-            <div className="shoprex-field">
-              <label className="shoprex-label" htmlFor="owner-email">
-                Barua pepe ya mmiliki · Owner email
-              </label>
-              <input
+            </Field>
+            <Field htmlFor="owner-email" label="Barua pepe ya mmiliki · Owner email">
+              <Input
                 id="owner-email"
                 name="ownerEmail"
                 type="email"
                 required
-                className="shoprex-input"
                 placeholder="mmiliki@duka.co.tz"
               />
-            </div>
-            <div className="shoprex-field">
-              <label className="shoprex-label" htmlFor="owner-password">
-                Nenosiri la kwanza · First password
-              </label>
-              <input
+            </Field>
+            <Field htmlFor="owner-password" label="Nenosiri la kwanza · First password">
+              <Input
                 id="owner-password"
                 name="ownerPassword"
                 type="password"
                 required
                 minLength={8}
-                className="shoprex-input"
               />
-            </div>
+            </Field>
           </div>
-
-          <p className="shoprex-note" style={{ margin: '0 0 12px' }}>
-            Duka na mmiliki wake hufunguliwa pamoja, na njia tatu za malipo huwekwa mara
-            moja — Taslimu, Pesa ya simu, na Deni. The shop, its owner, and its three
-            default payment methods are created together, so a new shop can take money
-            from its first minute.
-          </p>
         </ActionForm>
       </Panel>
-    </main>
+    </AdminShell>
   );
 }

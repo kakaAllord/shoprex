@@ -1,18 +1,51 @@
 import Link from 'next/link';
-import { BranchPicker } from '../../../components/branch-picker';
-import { ConsoleShell } from '../../../components/console-shell';
-import { EmptyState, ErrorState, Panel } from '../../../components/states';
-import { day, money, moment } from '../../../lib/format';
-import { requireConsole } from '../../../lib/api/guard';
-import { fetchMyBranches } from '../../../lib/api/organization';
+import { DownloadIcon, TriangleAlertIcon } from 'lucide-react';
+import { BranchPicker } from '@/components/branch-picker';
+import { ConsoleShell } from '@/components/console-shell';
+import { EmptyState, ErrorState, Panel } from '@/components/states';
+import { StatCard } from '@/components/stat-card';
+import { BarList, type BarRow } from '@/components/charts/bar-list';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableFooter,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { day, money, moment } from '@/lib/format';
+import { requireConsole } from '@/lib/api/guard';
+import { fetchMyBranches } from '@/lib/api/organization';
 import {
   BranchComparison,
   DailyReport,
   fetchBranchComparison,
   fetchDailyReport,
-} from '../../../lib/api/reports';
+} from '@/lib/api/reports';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * Which chart colour a payment method gets, decided by what kind of money it
+ * is rather than by what order it happens to come back in.
+ *
+ * Cash is the green one because cash is money already in the drawer; debt is
+ * amber because it is money that is not. A shop renaming "Deni" to something
+ * else does not move it, and a shop that adds a fourth method does not repaint
+ * the other three — colour follows the entity, never its rank.
+ */
+const SERIES_BY_KIND: Record<string, BarRow['series']> = {
+  CASH: 1,
+  MOBILE_MONEY: 2,
+  DEBT: 3,
+  OTHER: 4,
+  BANK: 5,
+};
 
 /**
  * The day, read back.
@@ -26,6 +59,10 @@ export const dynamic = 'force-dynamic';
  * **The day is the shop's, not the browser's.** `window` on the response names
  * the exact UTC instants counted, in the shop's own zone — this screen only
  * displays what the backend decided, never a date the browser computed.
+ *
+ * The figures come first and the tables after, which is the one ordering
+ * change this screen has had: an owner opens Ripoti to find out what the day
+ * took, and used to have to scroll past a date picker to see it.
  */
 export default async function ReportsPage({
   searchParams,
@@ -67,7 +104,12 @@ export default async function ReportsPage({
   } catch (error) {
     return (
       <ConsoleShell profile={profile} current="/owner/reports" title="Ripoti · Reports">
-        <BranchPicker branches={branches} selected={selected.id} basePath="/owner/reports" />
+        <BranchPicker
+          branches={branches}
+          selected={selected.id}
+          basePath="/owner/reports"
+          query={{ date }}
+        />
         <ErrorState
           error={error}
           retryHref={`/owner/reports?branch=${selected.id}${date ? `&date=${date}` : ''}`}
@@ -97,275 +139,284 @@ export default async function ReportsPage({
     <ConsoleShell
       profile={profile}
       current="/owner/reports"
-      title="Ripoti · Reports"
-      lede={`Ripoti ya ${day(report.window.date + 'T12:00:00Z')} kwa ${selected.name}. Daily totals for ${selected.name}, in the shop's own day.`}
+      title="Ripoti"
+      lede={`${day(report.window.date + 'T12:00:00Z')} · ${selected.name}`}
+      actions={
+        <Button asChild size="sm">
+          <a href={pdfHref}>
+            <DownloadIcon />
+            Pakua PDF
+          </a>
+        </Button>
+      }
     >
-      {branches.length > 1 ? (
-        <div className="shoprex-branchbar" role="navigation" aria-label="Tawi · Branch">
-          {branches.map((candidate) => (
-            <Link
-              key={candidate.id}
-              href={branchQuery(candidate.id)}
-              className={
-                candidate.id === selected.id
-                  ? 'shoprex-branchbar__link shoprex-branchbar__link--on'
-                  : 'shoprex-branchbar__link'
-              }
-              aria-current={candidate.id === selected.id ? 'page' : undefined}
-            >
-              {candidate.name}
-            </Link>
-          ))}
-        </div>
+      {/* The money first. Everything below explains it. */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          label="Zilizoingia · Collected"
+          value={money(report.totals.collectedTzs)}
+          tone="money"
+          hint={`Chenji iliyotolewa · change given ${money(report.totals.changeTzs)}`}
+        />
+        <StatCard
+          label="Mauzo · Sales"
+          value={report.totals.saleCount}
+          hint={`Vitu ${report.totals.lineCount} · lines sold`}
+        />
+        <StatCard
+          label="Deni · Owed"
+          value={money(report.totals.debtTzs)}
+          tone={report.totals.debtTzs > 0 ? 'owed' : 'default'}
+          hint={
+            report.debts.length > 0
+              ? `Watu ${report.debts.length} · debtors`
+              : 'Hakuna deni · nobody owes'
+          }
+        />
+        <StatCard
+          label="Jumla ya mauzo · Total sold"
+          value={money(report.totals.salesTotalTzs)}
+          hint="Zilizoingia + deni"
+        />
+      </div>
+
+      {report.totals.salesWithShortfall > 0 ? (
+        <Alert variant="warning">
+          <TriangleAlertIcon />
+          <div className="flex flex-1 flex-col items-start gap-2">
+            <AlertTitle>
+              Mauzo {report.totals.salesWithShortfall} yalizidi stoo iliyorekodiwa — hesabu upya
+            </AlertTitle>
+            <AlertDescription>
+              {report.totals.salesWithShortfall} sale(s) sold more than the records held. Mauzo
+              yalikamilika; hesabu ndiyo yenye shaka.
+            </AlertDescription>
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/owner/stock?branch=${selected.id}`}>Fungua Stoo · Open stock</Link>
+            </Button>
+          </div>
+        </Alert>
       ) : null}
 
-      <Panel title="Chagua siku · Select a date">
-        <form className="shoprex-inlineform" method="get" action="/owner/reports">
+      {/* Choosing a different day, and a different branch. */}
+      <div className="flex flex-wrap items-end gap-3">
+        <BranchPicker
+          branches={branches}
+          selected={selected.id}
+          basePath="/owner/reports"
+          query={{ date }}
+        />
+
+        <form method="get" action="/owner/reports" className="flex flex-wrap items-center gap-2">
           <input type="hidden" name="branch" value={selected.id} />
-          <input
-            className="shoprex-input"
+          <Input
             type="date"
             name="date"
             defaultValue={report.window.date}
             aria-label="Tarehe · Date"
+            className="w-auto"
           />
-          <button className="shoprex-button" type="submit">
+          <Button type="submit" variant="outline" size="sm">
             Tazama · View
-          </button>
+          </Button>
           {date ? (
-            <Link className="shoprex-linkbutton" href={todayQuery}>
-              Leo · Today
-            </Link>
+            <Button asChild variant="ghost" size="sm">
+              <Link href={todayQuery}>Leo · Today</Link>
+            </Button>
           ) : null}
-          <a className="shoprex-linkbutton" href={pdfHref}>
-            Pakua PDF · Download PDF
-          </a>
         </form>
-        <p className="shoprex-note" style={{ margin: 0 }}>
-          Siku ya duka {report.window.startUtc} → {report.window.endUtc} ({report.window.timezone})
-          · Shop day, in server time.
-        </p>
-      </Panel>
-
-      <div className="shoprex-metrics">
-        <div className="shoprex-metric">
-          <div className="shoprex-metric__value">{money(report.totals.collectedTzs)}</div>
-          <div className="shoprex-metric__label">Zilizoingia · Collected</div>
-        </div>
-        <div className="shoprex-metric">
-          <div className="shoprex-metric__value">{report.totals.saleCount}</div>
-          <div className="shoprex-metric__label">Mauzo · Sales</div>
-        </div>
-        <div className="shoprex-metric">
-          <div className="shoprex-metric__value">{money(report.totals.debtTzs)}</div>
-          <div className="shoprex-metric__label">Deni · Owed</div>
-        </div>
-        <div className="shoprex-metric">
-          <div className="shoprex-metric__value">{money(report.totals.salesTotalTzs)}</div>
-          <div className="shoprex-metric__label">Jumla ya mauzo · Total sold</div>
-        </div>
       </div>
 
-      {report.totals.salesWithShortfall > 0 ? (
-        <div className="shoprex-alert" role="alert">
-          Mauzo {report.totals.salesWithShortfall} yalizidi stoo iliyorekodiwa — hesabu upya · {' '}
-          {report.totals.salesWithShortfall} sale(s) sold more than the records held; recount Stoo.
-        </div>
-      ) : null}
+      <p className="text-xs text-muted-foreground">
+        Siku ya duka {report.window.startUtc} → {report.window.endUtc} ({report.window.timezone}) ·
+        Shop day, in server time.
+      </p>
 
-      <Panel title="Malipo · Payments">
-        {report.paymentBreakdown.length === 0 ? (
-          <EmptyState title="Hakuna malipo siku hii · No payments this day" />
-        ) : (
-          <div className="shoprex-tablewrap">
-            <table className="shoprex-table">
-              <thead>
-                <tr>
-                  <th>Njia · Method</th>
-                  <th className="shoprex-num">Mauzo · Sales</th>
-                  <th className="shoprex-num">Kiasi · Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.paymentBreakdown.map((row) => (
-                  <tr key={row.paymentMethodId}>
-                    <td>{row.methodName}</td>
-                    <td className="shoprex-num">{row.saleCount}</td>
-                    <td className="shoprex-num">{money(row.amountTzs)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
+      {/* The two questions a day gets asked most, side by side. */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Panel title="Malipo · Payments" description="How the day was paid">
+          {report.paymentBreakdown.length === 0 ? (
+            <EmptyState title="Hakuna malipo siku hii · No payments this day" />
+          ) : (
+            <BarList
+              rows={report.paymentBreakdown.map((row) => ({
+                label: row.methodName,
+                sublabel: `mauzo ${row.saleCount}`,
+                value: row.amountTzs,
+                display: money(row.amountTzs),
+                series: SERIES_BY_KIND[row.methodKind] ?? 4,
+              }))}
+            />
+          )}
+        </Panel>
 
-      <Panel title="Deni · Debts">
-        {report.debts.length === 0 ? (
-          <EmptyState title="Hakuna deni siku hii · No debt recorded this day" />
-        ) : (
-          <div className="shoprex-tablewrap">
-            <table className="shoprex-table">
-              <thead>
-                <tr>
-                  <th>Mdaiwa · Debtor</th>
-                  <th className="shoprex-num">Mauzo · Sales</th>
-                  <th className="shoprex-num">Kiasi · Owed</th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.debts.map((row) => (
-                  <tr key={row.debtorName}>
-                    <td>{row.debtorName}</td>
-                    <td className="shoprex-num">{row.saleCount}</td>
-                    <td className="shoprex-num">{money(row.amountTzs)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
+        <Panel title="Bidhaa zilizouzwa zaidi · Best sellers" description="By takings, not by count">
+          {report.topProducts.length === 0 ? (
+            <EmptyState title="Hakuna mauzo siku hii · No sales this day" />
+          ) : (
+            <BarList
+              rows={report.topProducts.map((row) => ({
+                label: row.productName,
+                sublabel: `${row.unitName} · ${row.quantity}`,
+                value: row.totalTzs,
+                display: money(row.totalTzs),
+                series: 2,
+              }))}
+            />
+          )}
+        </Panel>
+      </div>
 
-      <Panel title="Wafanyakazi · Who sold">
-        {report.sellers.length === 0 ? (
-          <EmptyState title="Hakuna mauzo siku hii · No sales this day" />
-        ) : (
-          <div className="shoprex-tablewrap">
-            <table className="shoprex-table">
-              <thead>
-                <tr>
-                  <th>Jina · Name</th>
-                  <th className="shoprex-num">Mauzo · Sales</th>
-                  <th className="shoprex-num">Jumla · Total</th>
-                  <th className="shoprex-num">Deni · Owed</th>
-                </tr>
-              </thead>
-              <tbody>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Panel title="Wafanyakazi · Who sold">
+          {report.sellers.length === 0 ? (
+            <EmptyState title="Hakuna mauzo siku hii · No sales this day" />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Jina · Name</TableHead>
+                  <TableHead className="text-right">Mauzo</TableHead>
+                  <TableHead className="text-right">Jumla</TableHead>
+                  <TableHead className="text-right">Deni</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {report.sellers.map((row) => (
-                  <tr key={row.userId}>
-                    <td>{row.name}</td>
-                    <td className="shoprex-num">{row.saleCount}</td>
-                    <td className="shoprex-num">{money(row.salesTotalTzs)}</td>
-                    <td className="shoprex-num">{money(row.debtTzs)}</td>
-                  </tr>
+                  <TableRow key={row.userId}>
+                    <TableCell className="font-medium">{row.name}</TableCell>
+                    <TableCell className="tabular text-right">{row.saleCount}</TableCell>
+                    <TableCell className="tabular text-right font-medium">
+                      {money(row.salesTotalTzs)}
+                    </TableCell>
+                    <TableCell className="tabular text-right text-warning-foreground">
+                      {row.debtTzs === 0 ? '—' : money(row.debtTzs)}
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
+              </TableBody>
+            </Table>
+          )}
+        </Panel>
 
-      <Panel title="Bidhaa zilizouzwa zaidi · Best sellers">
-        {report.topProducts.length === 0 ? (
-          <EmptyState title="Hakuna mauzo siku hii · No sales this day" />
-        ) : (
-          <div className="shoprex-tablewrap">
-            <table className="shoprex-table">
-              <thead>
-                <tr>
-                  <th>Bidhaa · Product</th>
-                  <th className="shoprex-num">Idadi · Quantity</th>
-                  <th className="shoprex-num">Jumla · Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.topProducts.map((row) => (
-                  <tr key={`${row.productId}-${row.unitName}`}>
-                    <td>
-                      {row.productName} <span className="shoprex-sub">{row.unitName}</span>
-                    </td>
-                    <td className="shoprex-num">{row.quantity}</td>
-                    <td className="shoprex-num">{money(row.totalTzs)}</td>
-                  </tr>
+        <Panel title="Deni · Debts" description="Jina lililoandikwa wakati wa mauzo">
+          {report.debts.length === 0 ? (
+            <EmptyState title="Hakuna deni siku hii · No debt recorded this day" />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Mdaiwa · Debtor</TableHead>
+                  <TableHead className="text-right">Mauzo</TableHead>
+                  <TableHead className="text-right">Kiasi · Owed</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {report.debts.map((row) => (
+                  <TableRow key={row.debtorName}>
+                    <TableCell className="font-medium">{row.debtorName}</TableCell>
+                    <TableCell className="tabular text-right">{row.saleCount}</TableCell>
+                    <TableCell className="tabular text-right font-semibold text-warning-foreground">
+                      {money(row.amountTzs)}
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
+              </TableBody>
+            </Table>
+          )}
+        </Panel>
+      </div>
 
-      <Panel title="Mzigo uliopokelewa · Stock received">
+      <Panel
+        title="Mzigo uliopokelewa · Stock received"
+        description={
+          report.received.totalCostTzs === null
+            ? 'Gharama haikurekodiwa · no cost was recorded'
+            : `Jumla ya gharama · total cost ${money(report.received.totalCostTzs)}${
+                report.received.costIsPartial ? ' (sehemu · some lines had none)' : ''
+              }`
+        }
+      >
         {report.received.rows.length === 0 ? (
           <EmptyState title="Hakuna mzigo siku hii · No delivery recorded this day" />
         ) : (
-          <>
-            <div className="shoprex-tablewrap">
-              <table className="shoprex-table">
-                <thead>
-                  <tr>
-                    <th>Bidhaa · Product</th>
-                    <th className="shoprex-num">Idadi · Quantity</th>
-                    <th className="shoprex-num">Gharama · Cost</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {report.received.rows.map((row) => (
-                    <tr key={`${row.productId}-${row.productUnitId}`}>
-                      <td>
-                        {row.productName} <span className="shoprex-sub">{row.unitName}</span>
-                      </td>
-                      <td className="shoprex-num">{row.quantity}</td>
-                      <td className="shoprex-num">
-                        {row.costTzs === null ? '—' : money(row.costTzs)}
-                        {row.costIsPartial ? <span className="shoprex-sub">sehemu · partial</span> : null}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {report.received.totalCostTzs === null ? (
-              <p className="shoprex-note">Gharama haikurekodiwa · No cost was recorded</p>
-            ) : (
-              <p className="shoprex-note">
-                Jumla ya gharama · Total cost {money(report.received.totalCostTzs)}
-                {report.received.costIsPartial ? ' (sehemu · some lines had none)' : ''}
-              </p>
-            )}
-          </>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Bidhaa · Product</TableHead>
+                <TableHead className="text-right">Idadi · Quantity</TableHead>
+                <TableHead className="text-right">Gharama · Cost</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {report.received.rows.map((row) => (
+                <TableRow key={`${row.productId}-${row.productUnitId}`}>
+                  <TableCell>
+                    <span className="font-medium">{row.productName}</span>{' '}
+                    <span className="text-xs text-muted-foreground">{row.unitName}</span>
+                  </TableCell>
+                  <TableCell className="tabular text-right">{row.quantity}</TableCell>
+                  <TableCell className="tabular text-right">
+                    {row.costTzs === null ? '—' : money(row.costTzs)}
+                    {row.costIsPartial ? (
+                      <span className="ml-1.5 text-xs text-muted-foreground">sehemu</span>
+                    ) : null}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
       </Panel>
 
       {comparison ? (
-        <Panel title="Kulinganisha matawi · Branch comparison">
-          <div className="shoprex-tablewrap">
-            <table className="shoprex-table">
-              <thead>
-                <tr>
-                  <th>Tawi · Branch</th>
-                  <th className="shoprex-num">Mauzo · Sales</th>
-                  <th className="shoprex-num">Jumla · Total</th>
-                  <th className="shoprex-num">Deni · Owed</th>
-                  <th className="shoprex-num">Zilizoingia · Collected</th>
-                </tr>
-              </thead>
-              <tbody>
-                {comparison.branches.map((row) => (
-                  <tr key={row.branchId}>
-                    <td>
-                      <Link className="shoprex-linkbutton" href={branchQuery(row.branchId)}>
-                        {row.branchName}
-                      </Link>
-                    </td>
-                    <td className="shoprex-num">{row.saleCount}</td>
-                    <td className="shoprex-num">{money(row.salesTotalTzs)}</td>
-                    <td className="shoprex-num">{money(row.debtTzs)}</td>
-                    <td className="shoprex-num">{money(row.collectedTzs)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td>Jumla · Total</td>
-                  <td className="shoprex-num">{comparison.totals.saleCount}</td>
-                  <td className="shoprex-num">{money(comparison.totals.salesTotalTzs)}</td>
-                  <td className="shoprex-num">{money(comparison.totals.debtTzs)}</td>
-                  <td className="shoprex-num">{money(comparison.totals.collectedTzs)}</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
+        <Panel title="Kulinganisha matawi · Branch comparison" description={day(report.window.date + 'T12:00:00Z')}>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Tawi · Branch</TableHead>
+                <TableHead className="text-right">Mauzo</TableHead>
+                <TableHead className="text-right">Jumla</TableHead>
+                <TableHead className="text-right">Deni</TableHead>
+                <TableHead className="text-right">Zilizoingia</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {comparison.branches.map((row) => (
+                <TableRow key={row.branchId}>
+                  <TableCell>
+                    <Link
+                      href={branchQuery(row.branchId)}
+                      className="font-medium text-info underline-offset-4 hover:underline"
+                    >
+                      {row.branchName}
+                    </Link>
+                  </TableCell>
+                  <TableCell className="tabular text-right">{row.saleCount}</TableCell>
+                  <TableCell className="tabular text-right">{money(row.salesTotalTzs)}</TableCell>
+                  <TableCell className="tabular text-right">{money(row.debtTzs)}</TableCell>
+                  <TableCell className="tabular text-right font-medium">
+                    {money(row.collectedTzs)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+            <TableFooter>
+              <TableRow>
+                <TableCell className="font-semibold">Jumla · Total</TableCell>
+                <TableCell className="tabular text-right">{comparison.totals.saleCount}</TableCell>
+                <TableCell className="tabular text-right">
+                  {money(comparison.totals.salesTotalTzs)}
+                </TableCell>
+                <TableCell className="tabular text-right">
+                  {money(comparison.totals.debtTzs)}
+                </TableCell>
+                <TableCell className="tabular text-right font-semibold">
+                  {money(comparison.totals.collectedTzs)}
+                </TableCell>
+              </TableRow>
+            </TableFooter>
+          </Table>
         </Panel>
       ) : null}
 
@@ -373,54 +424,66 @@ export default async function ReportsPage({
         {report.transactions.length === 0 ? (
           <EmptyState title="Hakuna mauzo siku hii · No sales this day" />
         ) : (
-          <>
-            <div className="shoprex-tablewrap">
-              <table className="shoprex-table">
-                <thead>
-                  <tr>
-                    <th>Wakati · When</th>
-                    <th>Aliyeuza · Sold by</th>
-                    <th className="shoprex-num">Vitu · Lines</th>
-                    <th className="shoprex-num">Jumla · Total</th>
-                    <th>Malipo · Paid by</th>
-                    <th>&nbsp;</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {report.transactions.map((transaction) => (
-                    <tr
-                      key={transaction.id}
-                      className={transaction.hasStockInconsistency ? 'shoprex-warnrow' : undefined}
-                    >
-                      <td>{moment(transaction.createdAt)}</td>
-                      <td>{transaction.soldByName}</td>
-                      <td className="shoprex-num">{transaction.lineCount}</td>
-                      <td className="shoprex-num">{money(transaction.totalTzs)}</td>
-                      <td>{transaction.paymentMethods.join(' + ')}</td>
-                      <td>
-                        <Link
-                          className="shoprex-linkbutton"
-                          href={`/owner/sales/${selected.id}/${transaction.id}`}
-                        >
-                          Risiti · Receipt
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          <div className="flex flex-col gap-3">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Wakati · When</TableHead>
+                  <TableHead>Aliyeuza · Sold by</TableHead>
+                  <TableHead className="text-right">Vitu</TableHead>
+                  <TableHead className="text-right">Jumla</TableHead>
+                  <TableHead>Malipo · Paid by</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {report.transactions.map((transaction) => (
+                  <TableRow key={transaction.id}>
+                    <TableCell className="whitespace-nowrap text-muted-foreground">
+                      {moment(transaction.createdAt)}
+                    </TableCell>
+                    <TableCell className="font-medium">
+                      <span className="flex items-center gap-2">
+                        {transaction.soldByName}
+                        {transaction.hasStockInconsistency ? (
+                          <Badge variant="warning">
+                            <TriangleAlertIcon />
+                            hesabu
+                          </Badge>
+                        ) : null}
+                      </span>
+                    </TableCell>
+                    <TableCell className="tabular text-right">{transaction.lineCount}</TableCell>
+                    <TableCell className="tabular text-right font-medium">
+                      {money(transaction.totalTzs)}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {transaction.paymentMethods.join(' + ')}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button asChild variant="ghost" size="sm">
+                        <Link href={`/owner/sales/${selected.id}/${transaction.id}`}>Risiti</Link>
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+
             {report.transactionsTruncated ? (
-              <p className="shoprex-note">
+              <p className="text-xs text-muted-foreground">
                 Orodha imekatwa baada ya {report.transactions.length} · List cut after{' '}
                 {report.transactions.length} — the totals above cover the whole day. Tumia{' '}
-                <Link className="shoprex-linkbutton" href={`/owner/sales?branch=${selected.id}&date=${report.window.date}`}>
+                <Link
+                  href={`/owner/sales?branch=${selected.id}&date=${report.window.date}`}
+                  className="font-medium text-info underline-offset-4 hover:underline"
+                >
                   Mauzo
                 </Link>{' '}
-                kwa orodha kamili · use Mauzo for the full paged list.
+                kwa orodha kamili.
               </p>
             ) : null}
-          </>
+          </div>
         )}
       </Panel>
     </ConsoleShell>

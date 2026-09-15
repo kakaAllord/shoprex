@@ -2,7 +2,10 @@
 
 import { useActionState, type ReactNode } from 'react';
 import { useFormStatus } from 'react-dom';
-import { IDLE, type ActionState } from '../lib/action-state';
+import { CheckCircle2Icon, CircleAlertIcon, Loader2Icon } from 'lucide-react';
+import { IDLE, type ActionState } from '@/lib/action-state';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 function SubmitButton({
   label,
@@ -17,19 +20,11 @@ function SubmitButton({
 }) {
   const { pending } = useFormStatus();
 
-  const className = [
-    'shoprex-button',
-    variant === 'quiet' ? 'shoprex-button--quiet' : '',
-    variant === 'danger' ? 'shoprex-button--danger' : '',
-    variant ? 'shoprex-button--small' : '',
-  ]
-    .filter(Boolean)
-    .join(' ');
-
   return (
-    <button
+    <Button
       type="submit"
-      className={className}
+      size={variant ? 'sm' : 'default'}
+      variant={variant === 'danger' ? 'destructive' : variant === 'quiet' ? 'outline' : 'default'}
       disabled={pending}
       // Revoking a phone and discontinuing a product are both easy to click by
       // accident and awkward to undo in a shop. Neither is destructive to
@@ -44,8 +39,9 @@ function SubmitButton({
           : undefined
       }
     >
+      {pending ? <Loader2Icon className="motion-safe:animate-spin" /> : null}
       {pending ? busyLabel : label}
-    </button>
+    </Button>
   );
 }
 
@@ -63,6 +59,7 @@ export function ActionForm({
   variant,
   confirm,
   inline,
+  className,
   children,
 }: {
   action: (state: ActionState, form: FormData) => Promise<ActionState>;
@@ -72,13 +69,20 @@ export function ActionForm({
   confirm?: string;
   /** Lay the fields and the button out on one row. */
   inline?: boolean;
+  className?: string;
   children?: ReactNode;
 }) {
   const [state, formAction] = useActionState(action, IDLE);
 
   return (
-    <form action={formAction}>
-      <div className={inline ? 'shoprex-inlineform' : undefined}>
+    <form action={formAction} className={cn('flex flex-col gap-3', className)}>
+      <div
+        className={
+          inline
+            ? 'flex flex-wrap items-end gap-2'
+            : 'flex flex-col gap-3 [&>*:last-child]:self-start'
+        }
+      >
         {children}
         <SubmitButton
           label={label}
@@ -89,13 +93,21 @@ export function ActionForm({
       </div>
 
       {state.error ? (
-        <p className="shoprex-alert" role="alert" style={{ marginTop: 12 }}>
+        <p
+          role="alert"
+          className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm"
+        >
+          <CircleAlertIcon className="mt-0.5 size-4 shrink-0 text-destructive" />
           {state.error}
         </p>
       ) : null}
 
       {state.message ? (
-        <p className="shoprex-ok" role="status" style={{ marginTop: 12 }}>
+        <p
+          role="status"
+          className="flex items-start gap-2 rounded-lg border border-success/25 bg-success-muted px-3 py-2 text-sm text-success-foreground"
+        >
+          <CheckCircle2Icon className="mt-0.5 size-4 shrink-0" />
           {state.message}
         </p>
       ) : null}

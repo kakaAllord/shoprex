@@ -1,4 +1,4 @@
-import { LoadingState } from '../../components/states';
+import { LoadingState } from '@/components/states';
 
 /**
  * What the owner console shows while a page is fetching.
@@ -10,12 +10,11 @@ import { LoadingState } from '../../components/states';
  * their tap did not register — and tapping again.
  *
  * Next renders this the instant a navigation into this segment begins, which
- * is exactly the gap. It sits below the shell rather than replacing it, so the
- * navigation stays on screen and the reader can change their mind.
+ * is exactly the gap.
  */
 export default function OwnerLoading() {
   return (
-    <main className="shoprex-shell shoprex-shell--wide">
+    <main className="flex min-h-svh flex-col gap-4 p-4 md:p-6">
       <LoadingState label="Inapakia · Loading…" rows={4} />
     </main>
   );

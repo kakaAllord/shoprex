@@ -82,6 +82,18 @@
 
 **Acceptance check:** A selected pilot shop can onboard, enroll devices, sell, receive stock, manage workers, view reports, and recover from ordinary network/API errors without data duplication.
 
+## Phase 9 — Web console on shadcn/ui
+
+**Purpose:** Rebuild the owner and platform-admin console on a real component library, and give it a colour system in which each colour means one thing.
+
+**Added 2026-09-15 at the owner's instruction, after Phase 8 had opened.** It runs *beside* Phase 8 rather than inside it: Phase 8's remaining deliverables are physical (a low-end Android phone, a pilot shop) and nothing here closes them.
+
+**Deliverables:** shadcn/ui components (Radix + Tailwind v4) owned as source under `web/src/components/ui/`; a collapsible sidebar replacing the horizontal nav; light and dark themes, each stepped against its own surface; a token system where navy is chrome, blue is navigation and counts, Kijani is money and the primary action, amber is owed and refused, and red is destructive only; charts on the daily report that carry their figures as well as their colour; and the accessibility fix this phase found — the primary button was white on emerald 600 at 3.77:1 against WCAG AA's 4.5:1.
+
+**Scope boundary:** the console only. The backend and the React Native app are untouched, and **web and mobile now diverge on purpose** — see `AGENT.md`'s design rules.
+
+**Acceptance check:** Every route under `/owner` and `/admin` renders in both themes with no colour carrying meaning alone; a manager sees fewer destinations rather than dimmed ones and a `403` reads as the shop's own rule rather than a fault; every write still succeeds and reports beside its own form; the primary action meets WCAG AA in both themes; and the full three-surface suite passes. **A redesign is not verified by a passing suite** — the phase is not complete until its `PROGRESS.md` §9 *Manual testing* has been walked in a real browser.
+
 ## Explicitly deferred after V1
 
 Offline-first operation, offline sales, background synchronization, multi-device conflict resolution, automatic external report sending, mobile-money provider APIs, returns/refunds/corrections, customers/CRM, expenses/profit, suppliers, purchase orders, branch stock transfers, visual recognition, e-commerce, delivery, loyalty, payroll, **receipt printing**, and regulatory fiscal-device integrations.

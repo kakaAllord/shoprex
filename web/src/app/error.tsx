@@ -1,6 +1,9 @@
 'use client';
 
 import { useEffect } from 'react';
+import { AlertCircleIcon, HomeIcon, RefreshCwIcon } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 
 /**
  * The last thing standing between an unhandled exception and a stack trace.
@@ -34,27 +37,39 @@ export default function ConsoleError({
   }, [error]);
 
   return (
-    <main className="shoprex-shell">
-      <div className="shoprex-state shoprex-state--error" role="alert">
-        <p className="shoprex-state__title">Kuna hitilafu · Something went wrong</p>
-        <p className="shoprex-state__hint">
-          Shoprex haikuweza kuonyesha ukurasa huu · Shoprex could not display this page. Hakuna
-          taarifa iliyopotea · Nothing you saved has been lost.
-        </p>
-        {error.digest ? (
-          <p className="shoprex-state__hint">
-            Namba ya hitilafu · Reference: <code>{error.digest}</code>
+    <main className="flex min-h-svh items-center justify-center p-4">
+      <Card className="w-full max-w-md" role="alert">
+        <CardContent className="flex flex-col items-start gap-3 pt-6">
+          <AlertCircleIcon className="size-5 text-destructive" aria-hidden="true" />
+
+          <p className="text-base font-semibold">Kuna hitilafu · Something went wrong</p>
+
+          <p className="text-sm text-muted-foreground">
+            Shoprex haikuweza kuonyesha ukurasa huu · Shoprex could not display this page. Hakuna
+            taarifa iliyopotea · Nothing you saved has been lost.
           </p>
-        ) : null}
-        <div className="shoprex-state__actions">
-          <button type="button" className="shoprex-linkbutton" onClick={reset}>
-            Jaribu tena · Try again
-          </button>
-          <a className="shoprex-linkbutton" href="/">
-            Rudi mwanzo · Back to the start
-          </a>
-        </div>
-      </div>
+
+          {error.digest ? (
+            <p className="text-xs text-muted-foreground">
+              Namba ya hitilafu · Reference:{' '}
+              <code className="rounded bg-muted px-1 py-0.5">{error.digest}</code>
+            </p>
+          ) : null}
+
+          <div className="flex flex-wrap gap-2 pt-1">
+            <Button type="button" variant="outline" size="sm" onClick={reset}>
+              <RefreshCwIcon />
+              Jaribu tena · Try again
+            </Button>
+            <Button asChild variant="ghost" size="sm">
+              <a href="/">
+                <HomeIcon />
+                Rudi mwanzo · Back to the start
+              </a>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </main>
   );
 }

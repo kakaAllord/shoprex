@@ -1,17 +1,21 @@
-import { ActionForm } from '../../../components/action-form';
-import { ConsoleShell } from '../../../components/console-shell';
-import { EmptyState, ErrorState, OwnerOnlyNote, Panel } from '../../../components/states';
-import { isOwner, requireConsole } from '../../../lib/api/guard';
+import { ActionForm } from '@/components/action-form';
+import { ConsoleShell } from '@/components/console-shell';
+import { EmptyState, ErrorState, OwnerOnlyNote, Panel } from '@/components/states';
+import { Field } from '@/components/field';
+import { NativeSelect } from '@/components/native-select';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import {
-  ALL_KINDS,
-  KIND_LABELS,
-  fetchPaymentMethods,
-} from '../../../lib/api/payment-methods';
-import {
-  createPaymentMethodAction,
-  renameMethodAction,
-  setMethodActiveAction,
-} from '../actions';
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { isOwner, requireConsole } from '@/lib/api/guard';
+import { ALL_KINDS, KIND_LABELS, fetchPaymentMethods } from '@/lib/api/payment-methods';
+import { createPaymentMethodAction, renameMethodAction, setMethodActiveAction } from '../actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,7 +42,7 @@ export default async function PaymentMethodsPage() {
       <ConsoleShell
         profile={profile}
         current="/owner/payment-methods"
-        title="Njia za malipo · Payment methods"
+        title="Njia za malipo"
       >
         <Panel title="Malipo · Payments">
           <OwnerOnlyNote what="Kupanga njia za malipo · Configuring how the shop is paid" />
@@ -53,11 +57,7 @@ export default async function PaymentMethodsPage() {
     methods = await fetchPaymentMethods(token, true);
   } catch (error) {
     return (
-      <ConsoleShell
-        profile={profile}
-        current="/owner/payment-methods"
-        title="Njia za malipo"
-      >
+      <ConsoleShell profile={profile} current="/owner/payment-methods" title="Njia za malipo">
         <ErrorState error={error} retryHref="/owner/payment-methods" />
       </ConsoleShell>
     );
@@ -69,136 +69,109 @@ export default async function PaymentMethodsPage() {
     <ConsoleShell
       profile={profile}
       current="/owner/payment-methods"
-      title="Njia za malipo · Payment methods"
-      lede="Hizi ndizo vitufe vinavyotokea kwenye simu wakati wa kulipa. Zilizozimwa hazionekani huko kabisa. These are the buttons the phone shows at checkout — a switched-off method does not appear there at all."
+      title="Njia za malipo"
+      lede="Hizi ndizo vitufe vinavyotokea kwenye simu wakati wa kulipa. Zilizozimwa hazionekani huko kabisa."
     >
-      <Panel title={`Njia · Methods (${active.length} hai · active)`}>
+      <Panel
+        title={`Njia · Methods (${active.length} hai · active)`}
+        description="Hakuna kufuta — njia iliyowahi kulipia mauzo haiwezi kuondolewa bila kuharibu maana ya risiti zile. Kuizima ndiyo njia sahihi."
+      >
         {methods.length === 0 ? (
           <EmptyState title="Hakuna njia ya malipo · No payment methods" />
         ) : (
-          <div className="shoprex-tablewrap">
-            <table className="shoprex-table">
-              <thead>
-                <tr>
-                  <th>Jina · Name</th>
-                  <th>Aina · Kind</th>
-                  <th>Hali · Status</th>
-                  <th>Badilisha jina · Rename</th>
-                  <th>&nbsp;</th>
-                </tr>
-              </thead>
-              <tbody>
-                {methods.map((method) => (
-                  <tr key={method.id} className={method.isActive ? undefined : 'shoprex-warnrow'}>
-                    <td>{method.name}</td>
-                    <td>
-                      {KIND_LABELS[method.kind].split(' — ')[0]}
-                      <span className="shoprex-sub">
-                        Haibadiliki · Fixed at creation
-                      </span>
-                    </td>
-                    <td>
-                      <span
-                        className={
-                          method.isActive
-                            ? 'shoprex-status shoprex-status--ok'
-                            : 'shoprex-status shoprex-status--warn'
-                        }
-                      >
-                        {method.isActive ? 'Hai · On' : 'Imezimwa · Off'}
-                      </span>
-                    </td>
-                    <td>
-                      <ActionForm
-                        action={renameMethodAction}
-                        label="Hifadhi · Save"
-                        busyLabel="..."
-                        variant="quiet"
-                        inline
-                      >
-                        <input type="hidden" name="methodId" value={method.id} />
-                        <input
-                          name="name"
-                          defaultValue={method.name}
-                          className="shoprex-input"
-                          style={{ maxWidth: 160 }}
-                          aria-label={`Jina jipya la ${method.name}`}
-                        />
-                      </ActionForm>
-                    </td>
-                    <td>
-                      <ActionForm
-                        action={setMethodActiveAction}
-                        label={method.isActive ? 'Zima · Switch off' : 'Washa · Switch on'}
-                        busyLabel="..."
-                        variant={method.isActive ? 'danger' : 'quiet'}
-                        confirm={
-                          method.isActive
-                            ? `Zima "${method.name}"? Haitatokea tena kwenye simu, na malipo kwa njia hii yatakataliwa. Switch it off? The phone stops offering it and the backend refuses it.`
-                            : undefined
-                        }
-                      >
-                        <input type="hidden" name="methodId" value={method.id} />
-                        <input
-                          type="hidden"
-                          name="isActive"
-                          value={method.isActive ? 'false' : 'true'}
-                        />
-                      </ActionForm>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Jina · Name</TableHead>
+                <TableHead>Aina · Kind</TableHead>
+                <TableHead>Hali · Status</TableHead>
+                <TableHead>Badilisha jina · Rename</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {methods.map((method) => (
+                <TableRow key={method.id}>
+                  <TableCell className="font-medium">{method.name}</TableCell>
+                  <TableCell>
+                    <span className="block">{KIND_LABELS[method.kind].split(' — ')[0]}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Haibadiliki · fixed at creation
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={method.isActive ? 'success' : 'warning'}>
+                      {method.isActive ? 'Hai · On' : 'Imezimwa · Off'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <ActionForm
+                      action={renameMethodAction}
+                      label="Hifadhi"
+                      busyLabel="..."
+                      variant="quiet"
+                      inline
+                    >
+                      <input type="hidden" name="methodId" value={method.id} />
+                      <Input
+                        name="name"
+                        defaultValue={method.name}
+                        className="w-40"
+                        aria-label={`Jina jipya la ${method.name}`}
+                      />
+                    </ActionForm>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <ActionForm
+                      action={setMethodActiveAction}
+                      label={method.isActive ? 'Zima · Switch off' : 'Washa · Switch on'}
+                      busyLabel="..."
+                      className="items-end"
+                      variant={method.isActive ? 'danger' : 'quiet'}
+                      confirm={
+                        method.isActive
+                          ? `Zima "${method.name}"? Haitatokea tena kwenye simu, na malipo kwa njia hii yatakataliwa. Switch it off? The phone stops offering it and the backend refuses it.`
+                          : undefined
+                      }
+                    >
+                      <input type="hidden" name="methodId" value={method.id} />
+                      <input
+                        type="hidden"
+                        name="isActive"
+                        value={method.isActive ? 'false' : 'true'}
+                      />
+                    </ActionForm>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
-
-        <p className="shoprex-note">
-          Hakuna kufuta. Njia iliyowahi kutumika kulipia mauzo haiwezi kuondolewa bila
-          kuharibu maana ya risiti zile — kuizima ndiyo njia sahihi, na ndiyo ukweli
-          wenyewe: duka limeacha kuipokea, halijaacha kuwa liliwahi kuipokea. There is no
-          delete, by design.
-        </p>
       </Panel>
 
-      <Panel title="Ongeza njia · Add a method">
+      <Panel
+        title="Ongeza njia · Add a method"
+        description="Aina huamua hesabu, si jina tu: taslimu pekee ndiyo hutoa chenji, na deni pekee ndilo huandika jina la mdaiwa. Haiwezi kubadilishwa baadaye."
+      >
         <ActionForm
           action={createPaymentMethodAction}
           label="Ongeza njia · Add method"
           busyLabel="Inaongeza..."
         >
-          <div className="shoprex-fieldgrid">
-            <div className="shoprex-field">
-              <label className="shoprex-label" htmlFor="method-name">
-                Jina · Name
-              </label>
-              <input
-                id="method-name"
-                name="name"
-                required
-                className="shoprex-input"
-                placeholder="M-Pesa"
-              />
-            </div>
-            <div className="shoprex-field">
-              <label className="shoprex-label" htmlFor="method-kind">
-                Aina · Kind
-              </label>
-              <select id="method-kind" name="kind" required className="shoprex-input">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field htmlFor="method-name" label="Jina · Name">
+              <Input id="method-name" name="name" required placeholder="M-Pesa" />
+            </Field>
+            <Field htmlFor="method-kind" label="Aina · Kind">
+              <NativeSelect id="method-kind" name="kind" required>
                 {ALL_KINDS.map((kind) => (
                   <option key={kind} value={kind}>
                     {KIND_LABELS[kind]}
                   </option>
                 ))}
-              </select>
-            </div>
+              </NativeSelect>
+            </Field>
           </div>
-
-          <p className="shoprex-note" style={{ margin: '0 0 12px' }}>
-            Aina huamua hesabu, si jina tu: taslimu pekee ndiyo hutoa chenji, na deni
-            pekee ndilo huandika jina la mdaiwa. Haiwezi kubadilishwa baadaye. The kind
-            decides the arithmetic, not just the label, and cannot be changed later.
-          </p>
         </ActionForm>
       </Panel>
     </ConsoleShell>

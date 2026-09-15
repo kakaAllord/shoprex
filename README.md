@@ -508,6 +508,32 @@ npm run dev
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | Vitest (component tests opt into jsdom per file) |
 
+### The component library
+
+The console is built on **shadcn/ui** (Radix primitives + Tailwind CSS v4 +
+`class-variance-authority`), rebuilt from hand-written CSS in Phase 9. shadcn is
+not a dependency: its components are **source you own**, and they live in
+`web/src/components/ui/`. Edit them directly — there is no upstream to fight,
+and no package to upgrade around.
+
+`components.json` is present, so `npx shadcn@latest add <component>` works on a
+machine that can reach `ui.shadcn.com`. The components already here were written
+by hand to the same API because that host was unreachable from the environment
+they were built in; they take the same props and use the same `data-slot`
+attributes, so a later `add` lands beside them cleanly.
+
+Tailwind v4 needs no `tailwind.config.js`. The theme is CSS: tokens in
+`:root` and `.dark` inside `src/styles/globals.css`, exposed as utilities by the
+`@theme inline` block below them. **Add a colour by adding a token**, not by
+writing a hex value into a component — see *Design language* at the end of this
+file for what each colour is allowed to mean.
+
+**Light and dark are both first-class**, switched by `next-themes` and defaulting
+to whatever the machine says. Dark is a *selected* theme, not an inverted one:
+every value is stepped against the dark surface rather than flipped, which is
+why `--primary` climbs to emerald 500 there and takes dark ink (white on a green
+that light is 2.2:1).
+
 | Route | Who it is for |
 |---|---|
 | `/` | Signpost: redirects to the right console, or to sign-in |
@@ -524,6 +550,15 @@ npm run dev
 | `/owner/staff` | Workers and managers: create, and change what they may do |
 | `/owner/devices` | Enrol a phone (the code is shown **once**) and revoke one |
 | `/owner/payment-methods` | How the shop is paid: add, rename, switch off |
+
+Navigation is a **collapsible sidebar** rather than a row of tabs: nine
+bilingual destinations did not scan as a single line, so they are grouped into
+**Duka** (Muhtasari, Ripoti, Mauzo, Stoo, Bidhaa) and **Usimamizi** (Matawi,
+Wafanyakazi, Simu, Malipo). Sidebar labels are Swahili alone — the console is
+Swahili-first and the rail is narrow — with the English word kept for the
+tooltip and the screen reader; page headings still carry both. The collapsed or
+expanded choice is remembered in a cookie **the server reads**, so the first
+paint is already the width it was left at, and `Ctrl`/`⌘`-`B` toggles it.
 
 **Managers share the owner console.** They see fewer doors rather than the same
 doors greyed out — a dimmed control teaches somebody that Shoprex is broken,
@@ -701,6 +736,27 @@ required value is missing.
 
 ## Design language
 
-Green-led and light-surfaced: Emerald for the main action, Kijani for completed
-states, Amber for warnings, red only for destructive or error states. No dark
-chrome. Tokens live in `web/src/styles/globals.css` and `mobile/src/app/theme.ts`.
+**The two surfaces deliberately differ** (Phase 9, 2026-09-15). A phone held over
+a counter and a console read at a desk are different tools; each gets the
+language that suits it. See `AGENT.md` — do not port one to the other.
+
+**Mobile** (`mobile/src/app/theme.ts`) keeps the original rule: green-led and
+light-surfaced, Emerald for the main action, Kijani for completed states, Amber
+for warnings, red only for destructive or error states, no dark chrome, and the
+selling action visually dominant.
+
+**Web** (`web/src/styles/globals.css`) is shadcn/ui with light and dark themes,
+and one rule underneath: **every colour does exactly one job.** Navy is the
+sidebar and nothing else; blue is links, selection, focus, and counts; Kijani is
+money in, the primary action, and success — roughly one green thing per screen;
+amber is money owed and the shop's own rule refusing something; red is
+destructive and error only. Green previously did three of those jobs at once,
+which is why none of them read.
+
+Two tokens are **measured rather than chosen**. `--primary` is emerald 700, not
+600: white on 600 is 3.77:1 where WCAG AA wants 4.5:1, and 700 is 5.48:1 — the
+old `--shoprex-emerald` button failed. And `--chart-1`/`--chart-2` are separated
+by **lightness** rather than hue, because green and blue at equal lightness
+collapse for blue-yellow colour blindness; darkening the green and lightening
+the blue moved the worst case from ΔE 6.6 to 13.2. Every chart writes its figure
+beside the bar regardless, so colour is never the only signal.

@@ -2,6 +2,8 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { LogOutIcon } from 'lucide-react';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 
 export function SignOutButton() {
   const router = useRouter();
@@ -15,8 +17,16 @@ export function SignOutButton() {
   }
 
   return (
-    <button type="button" onClick={signOut} className="shoprex-linkbutton" disabled={busy}>
+    <DropdownMenuItem
+      variant="destructive"
+      disabled={busy}
+      onSelect={(event) => {
+        event.preventDefault();
+        void signOut();
+      }}
+    >
+      <LogOutIcon />
       {busy ? 'Inatoka...' : 'Toka · Sign out'}
-    </button>
+    </DropdownMenuItem>
   );
 }

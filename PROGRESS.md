@@ -19,10 +19,21 @@ If Part A and Part B ever disagree (e.g. the table says "Complete" but a section
 | 6 | Next.js owner and admin web app | Complete | Yes — every clause driven end to end over HTTP by all four roles, plus a live console smoke test, see §6 | 2026-08-23 |
 | 7 | Reports and PDF | Complete | Yes — every clause driven end to end over real HTTP, plus a live console and PDF-download check against a running backend and web server, see §7 | 2026-08-24 |
 | 8 | Pilot hardening and launch | In progress | Partly — every code deliverable is verified by real tests (see §8); **low-end Android testing and the pilot shop itself are outstanding**. Distribution and over-the-air updates configured 2026-08-25, unproven against EAS, see §8a | 2026-08-25 |
+| 9 | Web console on shadcn/ui | In progress | Partly — the full three-surface suite passes at **1,186** and the console builds clean (see §9); **nothing has been looked at in a real browser**, which for a redesign is most of the check | 2026-09-15 |
 
 **Status values:** `Not started` / `In progress` / `Blocked` / `Complete`. Only mark `Complete` when the acceptance-check column says `Yes`, backed by a real test run referenced in that phase's section below.
 
-**Active phase:** Phase 8, **in progress**. The session opened by re-running the full suite from the recorded 1,038 and getting exactly 1,038, so the table and reality agreed before anything was touched. It now stands at **1,179** — backend unit 260 (unchanged), backend e2e 493 → **613**, web 66 → **80**, mobile 219 → **226**.
+**Active phase:** Phase 9, **in progress** — with **Phase 8 still open beneath it**, and deliberately so. Phase 8's two remaining deliverables are physical (a real low-end Android phone, a real pilot shop) and neither is closed by anything below; Phase 9 was opened beside it at the owner's instruction on 2026-09-15 rather than folded into it, so that Phase 8 keeps telling the truth about what has never been tested.
+
+Phase 9 rebuilt the **web console** on shadcn/ui with a collapsible sidebar, light and dark themes, and a colour system in which every colour does exactly one job. It found one real defect on the way: the existing primary button was **white on emerald 600 at 3.77:1**, against WCAG AA's 4.5:1 — a genuine accessibility failure in the Phase 0 design lock, unrelated to shadcn, now fixed at 5.48:1.
+
+The suite stands at **1,186** — backend unit 260 (unchanged), backend e2e 613 (unchanged), web 80 → **87**, mobile 226 (unchanged). Backend and mobile were not touched.
+
+**Exact next action:** open the console in a real browser and walk §9's *Manual testing*. Every screen was rewritten; a passing component test says the markup renders, not that the page reads. Nothing in Phase 9 has been seen by a human eye.
+
+**The former text for Phase 8 follows, and still stands.**
+
+**Phase 8, in progress.** The session opened by re-running the full suite from the recorded 1,038 and getting exactly 1,038, so the table and reality agreed before anything was touched. It now stands at **1,179** — backend unit 260 (unchanged), backend e2e 493 → **613**, web 66 → **80**, mobile 219 → **226**.
 
 Phase 8 found **three real defects** rather than merely confirming earlier work, and the first is the one the phase exists for:
 
@@ -2107,3 +2118,208 @@ It was untracked build output left over from before the Duka→Shoprex rename: `
 - **Channels do not cross.** A development build never receives a `staging` update, so it cannot rehearse what QA is about to get — it tests the code but never the delivery. Somebody should carry a `preview` APK alongside their dev client.
 - **`mobile/android/` no longer exists and should not be restored by hand.** `npm run prebuild` regenerates it correctly from `app.json`; the deleted copy carried the pre-rename package id and would have poisoned the fingerprint.
 - **Bump `android.versionCode` before each APK handed out.** Nothing enforces it, and forgetting produces two different builds both claiming to be version 1.
+
+
+### §9 — The web console on shadcn/ui (2026-09-15)
+
+**Status:** In progress. **Verified:** Partly — the full three-surface suite passes at **1,186**, the console typechecks and builds clean, and 7 new web tests cover what is genuinely new. **Nothing has been opened in a real browser**, which for a redesign is most of the check. **Date:** 2026-09-15.
+
+**Why this is a phase and not part of Phase 8.** The team asked for the console to be rebuilt on shadcn/ui and for a green-and-blue palette. Phase 8's remaining deliverables are physical — a low-end Android phone, a real pilot shop — and folding a console redesign into it would have let its acceptance check quietly stop meaning what it says. The owner chose a new phase on 2026-09-15; Phase 8 stays open and honest.
+
+#### What was actually wrong with the old design system
+
+The request was for a component library. What the measuring found was a defect.
+
+**1. The primary button failed WCAG AA.** `.shoprex-button` was white text on `--shoprex-emerald: #059669` — **3.77:1**, where AA wants 4.5:1 for normal text. Every write in the console went through that button. One step darker to emerald 700 (`#047857`) is **5.48:1** and is barely a different green. This has nothing to do with shadcn and would have been worth fixing on its own.
+
+**2. Green was doing three jobs at once.** `--shoprex-emerald` was the main action, `--shoprex-kijani` was success, and the brand chrome — header, nav, metric figures — was green as well. Emerald `#059669` and Kijani `#16a34a` are near-identical, so "press this", "this worked", and "this is Shoprex" were the same colour. None of the three read.
+
+That is what the team's green-and-blue instinct was reaching for, so the fix keeps their proposal and gives it a rule: **every colour does exactly one job.** Blue takes the chrome, and green goes back to meaning money. The Phase 0 lock's "Emerald as the main action colour" survives intact — it is everything *else* that stopped being green.
+
+**3. Nine bilingual nav items did not scan.** `Muhtasari · Overview`, `Ripoti · Reports` … as one horizontal row. They are now a collapsible sidebar in two groups: **Duka** (what a shop does daily) and **Usimamizi** (what an owner sets up occasionally).
+
+#### The colour system
+
+| Token | Allowed to mean | Never |
+|---|---|---|
+| `--sidebar` (navy) | The sidebar. Where you are | A button, a figure, a chart series |
+| `--info` / `--ring` (blue) | Links, selection, focus, counts, rankings | Money, or the primary action |
+| `--primary` (Kijani) | Money in, the primary action, success — ~one per screen | Decoration, headings, card borders |
+| `--warning` (amber) | Money owed, and the shop's own rule refusing something | A failure — nothing broke |
+| `--destructive` (red) | Destructive and error only | A negative stock figure — that is amber |
+| Slate | Everything else | — |
+
+Two values are **measured, not chosen**, and must not be nudged without re-measuring:
+
+- **`--primary` is emerald 700.** See defect 1 above.
+- **`--chart-1` and `--chart-2` are separated by lightness, not hue.** Green and blue at equal lightness are the one pairing that collapses for blue-yellow colour blindness. Darkening the green and lightening the blue took the worst-case separation from **ΔE 6.6 to 13.2** (OKLab ×100, simulated). The five-colour categorical ramp was validated in both themes; the dark ramp had to be re-stepped into L 0.48–0.67 after the first attempt sat too light and put chart-4 and chart-5 at ΔE 3.9.
+
+Regardless of any of that, **every chart writes its figure beside the bar**. Colour is the second encoding here, never the only one.
+
+#### Light and dark
+
+Dark is a **selected** theme, not an inverted one — every value is stepped against the dark surface. The consequence worth knowing: `--primary` climbs to emerald 500 in dark and takes *dark* ink, because white on a green that light is 2.2:1, which would be worse than the bug this phase exists to fix. The sidebar stays the darkest surface in the room in both themes, so it recedes and the money stays the brightest thing on screen.
+
+`AGENT.md`'s "no dark chrome" rule was **changed by the owner** to allow it in the console, and only there.
+
+#### Web and mobile now diverge, permanently
+
+Decided by the owner on 2026-09-15. The phone keeps the original green-led language in `mobile/src/app/theme.ts`; the console gets the system above. They are different tools for different jobs — one is held over a counter, the other read at a desk. **Do not "fix" the divergence by porting one to the other.** `AGENT.md`'s design rules now carry both, separately.
+
+#### shadcn/ui, written by hand
+
+`ui.shadcn.com` is blocked by the network policy of the environment this was built in (a 403 at the egress proxy), so `npx shadcn@latest init` and `add` could not reach the registry. The components in `web/src/components/ui/` were therefore **written by hand to the same API** — same props, same `data-slot` attributes, same Radix primitives underneath.
+
+This costs less than it sounds, because shadcn's whole model is that components are source you own rather than a dependency you upgrade. `components.json` is committed, so `npx shadcn@latest add <component>` works normally on a machine that can reach the host, and anything added later lands beside these cleanly. **It is worth knowing when reading them**, though: they were not generated, so they will not match a future upstream revision line for line.
+
+#### Files changed
+
+**Web — new:** `src/components/ui/` (button, card, badge, input, label, separator, skeleton, table, alert, avatar, tooltip, sheet, dropdown-menu, sidebar — 14 files), `src/components/theme-provider.tsx`, `theme-toggle.tsx`, `console-sidebar.tsx`, `admin-shell.tsx`, `auth-shell.tsx`, `field.tsx`, `native-select.tsx`, `stat-card.tsx`, `charts/bar-list.tsx`, `src/lib/utils.ts`, `src/hooks/use-mobile.ts`, `postcss.config.mjs`, `components.json`. Tests: `theme-toggle.test.tsx`, `ui/sidebar.test.tsx`.
+
+**Web — rewritten:** `src/styles/globals.css` (781 lines of hand-written CSS → 223 lines of tokens), all 13 routes under `src/app/`, `console-shell.tsx`, `console-nav.tsx`, `states.tsx`, `action-form.tsx`, `branch-picker.tsx`, `branch-form.tsx`, `permission-checks.tsx`, `login-form.tsx`, `signup-form.tsx`, `enrollment-form.tsx`, `sign-out-button.tsx`, `layout.tsx`, `src/test/setup.ts`.
+
+**Web — removed:** `src/components/console-header.tsx`, folded into `console-shell.tsx` (owner console) and `admin-shell.tsx` (platform console).
+
+**Dependencies added to `web/`** (approved by the owner before installing): `tailwindcss@4`, `@tailwindcss/postcss`, `tw-animate-css`, `class-variance-authority`, `clsx`, `tailwind-merge`, `lucide-react`, `next-themes`, nine `@radix-ui/react-*` primitives, and `@testing-library/user-event`.
+
+**Backend and mobile: untouched.** No route, no schema, no phone code.
+
+**Docs:** `AGENT.md` (design rules rewritten for the divergence), `README.md` (design language, the component-library section, the sidebar), `PROGRESS.md` (this), `docs/v1/03` (the Phase 9 row).
+
+#### Tests and results
+
+```bash
+cd backend && npm run lint && npm run typecheck && npm test && npm run test:e2e && npm run build
+cd web     && npm run typecheck && npm test && npm run build
+cd mobile  && npm run typecheck && npm test
+```
+
+| Surface | Before | After |
+|---|---|---|
+| Backend unit | 260 / 12 suites | 260 / 12 suites (untouched) |
+| Backend e2e | 613 / 19 suites | 613 / 19 suites (untouched) |
+| Web | 80 / 15 files | **87 / 17 files** |
+| Mobile | 226 / 13 suites | 226 / 13 suites (untouched) |
+| **Total** | **1,179** | **1,186** |
+
+Lint, typecheck, and build pass on backend and web; mobile typecheck and tests pass.
+
+**One real regression was caught by an existing test**, and it is the kind worth recording. The new `Alert` component set `role="alert"` on everything, which meant a **403 started announcing itself to a screen reader as an error**. Phase 6 had settled deliberately that a permission refusal is the shop's own rule rather than a fault. `states.test.tsx` asserted `queryByRole('alert')` was null and failed. The fix was to the component, not the test: `Alert` now carries **no implicit role**, and only genuine faults pass `role="alert"`. Red announces; amber describes.
+
+#### Manual testing
+
+**Nothing below has been done.** Every screen in the console was rewritten and none has been looked at. The automated tests prove the markup renders and the behaviour holds; they say nothing about whether a page reads.
+
+**Setup**
+
+1. PostgreSQL running; `cd backend && npm run prisma:deploy && npm run prisma:seed && npm run start:dev`.
+2. `cd web && npm install && npm run dev` — the dependencies are new, so `npm install` is required even on a checkout that worked yesterday.
+3. Sign in at `/login` as `owner@shoprex.co.tz` / `shoprex12345` (the form prefills).
+4. For anything with figures in it, ring up a few sales on the phone first — an empty shop shows empty states, which are worth seeing but are not the same test.
+
+---
+
+**Feature 1 — Finding the day's money without hunting for it** *(must pass — this is the point of the redesign)*
+
+1. Sign in. → You land on **Muhtasari**. Four count tiles, and **nothing on the page is green** — there is no money on this screen.
+2. Click **Ripoti ya leo**, top right. → Ripoti opens.
+3. Look at the top of the page **without scrolling**. → Four figures, and exactly **one of them is green**: *Zilizoingia*. That is the day's takings. Before this phase it sat below a date picker.
+4. Check the other three. → *Mauzo*, *Deni*, *Jumla ya mauzo*. Deni is amber if anything is owed and plain ink if not.
+5. Scroll once. → **Malipo** and **Bidhaa zilizouzwa zaidi**, side by side as bar charts. → *Every bar has its number written next to it.*
+6. Cover the bars with your hand and read only the labels and figures. → You can still answer "how was the day paid". → *That is the test. The colour is never carrying the meaning alone.*
+
+**Feature 2 — Dark mode, and that it is not just inverted** *(must pass)*
+
+1. Top right of any console page, click the sun/moon button. → Three options: **Mwanga**, **Giza**, **Ya simu**.
+2. Choose **Giza**. → The whole console goes dark. The sidebar is the *darkest* thing on screen, not the lightest.
+3. Look at **Pakua PDF** on Ripoti. → The green button now has **dark text on a lighter green**, not white text. → *White on that green is 2.2:1. If you see white text here, the dark palette has been flipped rather than stepped, and that is a bug.*
+4. Reload the page. → It comes back dark, with **no white flash** before it does.
+5. Choose **Ya simu**, then change your operating system between light and dark. → The console follows without a reload.
+6. Walk every screen in dark: Muhtasari, Ripoti, Mauzo, a receipt, Stoo, Bidhaa, Matawi, Wafanyakazi, Simu, Malipo. → *Look for anything that vanishes — text the same colour as its card, a border that disappears, a badge that becomes unreadable.*
+
+**Feature 3 — The sidebar** *(must pass)*
+
+1. Click the panel icon at the top left. → The sidebar collapses to icons only.
+2. Hover a collapsed icon. → A tooltip names it in both languages, e.g. *Ripoti · Reports*.
+3. **Reload the page while collapsed.** → It comes back collapsed, and **does not snap sideways** after a moment. → *The width is in a cookie the server reads. If it jumps, that has broken.*
+4. Press `Ctrl`-`B` (or `⌘`-`B`). → It toggles.
+5. Narrow the browser window to phone width. → The sidebar becomes a drawer; the panel icon opens it over the page.
+6. Click into each destination in turn. → The one you are on is marked by a tint **and** a green edge on its left. → *Two signals, not one.*
+
+**Feature 4 — A manager sees fewer doors** *(must pass — this is authorization's front)*
+
+1. On **Wafanyakazi**, create a manager with an email, a password, and one branch.
+2. Sign out, sign in as them.
+3. Look at the sidebar. → **Matawi** and **Malipo** are **absent**, not greyed out. The *Usimamizi* group still appears, with two items.
+4. Type `/owner/payment-methods` into the address bar. → An amber panel saying the owner does this — **not** a red error, and no retry button. → *A 403 is a sentence, not a fault.*
+5. With a screen reader on, load that page. → It is **not** announced as an alert. → *This regressed during the phase and was caught by a test; worth confirming by ear.*
+
+**Feature 5 — The states nobody looks at** *(worth a look)*
+
+1. Dev tools → network → **Slow 3G**. Click **Ripoti**. → A skeleton appears immediately and the sidebar stays put.
+2. Turn on the OS "reduce motion" setting, reload. → The skeleton is there and **no longer pulses**.
+3. Visit `/owner/nonsense`. → *Ukurasa haupo*, in Swahili, not dressed in red, one link back.
+4. Stop the backend, reload `/owner/reports`. → *Kuna hitilafu*, with **Jaribu tena** and **Rudi mwanzo**. Restart it and press **Jaribu tena**. → The page renders.
+5. On a shop with no branches, open Ripoti, Mauzo, and Stoo. → Each says what is missing and what to do about it, rather than showing an empty table.
+
+**Feature 6 — Every write still works** *(must pass — the forms were all rebuilt)*
+
+Each of these goes through a rewritten `ActionForm`. Do all of them:
+
+1. **Matawi** → add a branch. 2. **Wafanyakazi** → add a worker, add a manager, change somebody's permissions. 3. **Simu** → issue an enrollment code (→ *the code and its QR appear, once*), then revoke a phone (→ *a confirm dialog first*). 4. **Bidhaa** → add a product, set a price, attach a barcode, discontinue and bring back. 5. **Malipo** → add a method, rename one, switch one off. 6. **/admin** as `admin@shoprex.co.tz` → onboard a shop, suspend it, restore it.
+→ Each should show its own success line **next to the form**, not a banner at the top of the page.
+
+**Feature 7 — The console at phone width** *(worth a look — and carried over unfixed since §6)*
+
+1. Narrow the window to about 400px and walk every screen.
+2. → Tables scroll **sideways inside their own card**; the page itself never scrolls horizontally.
+3. → The header wraps rather than crushing the title.
+→ *This has been on the known-issues list since Phase 6. It should be better now; it has not been checked.*
+
+**What has no automated coverage at all**
+
+1. **Every screen's appearance.** 87 web tests assert behaviour and accessible names. Not one of them has seen a colour, a spacing, or a layout.
+2. **Dark mode in a browser.** The palette is arithmetic that was computed and validated; no photons have been involved.
+3. **The sidebar on a touch screen.** The drawer, the swipe, the tap targets.
+4. **`prefers-reduced-motion`.** Written, never observed.
+5. **The PDF download** from a real browser into a real Downloads folder — carried over from §7 and still true.
+6. **Anything at phone width** — carried over from §6 and still true.
+
+#### Decisions made
+
+- **shadcn/ui, with the components written by hand.** Forced by a blocked registry host, not chosen. `components.json` is committed so the CLI works elsewhere. Documented in `README.md` so nobody assumes they were generated.
+- **Green and blue, with each colour given one job.** The team proposed the pair; the rule is what makes it work. Blue takes the chrome so green can mean money.
+- **Both light and dark**, at the owner's instruction — which overrides `AGENT.md`'s "no dark chrome", now amended to allow it in the console only.
+- **Web and mobile diverge permanently**, at the owner's instruction. Recorded in `AGENT.md` so it is not read as drift.
+- **Phase 9 rather than reopening Phase 6 or folding into Phase 8**, at the owner's instruction.
+- **Sidebar labels are Swahili alone.** Bilingual labels doubled the row height in a 256px rail. The English word is kept in the tooltip and for screen readers, and page headings still carry both. This was my judgement, not the owner's — say so if it is wrong.
+- **No 7-day takings trend, despite the mockup showing one.** There is no backend route for a multi-day series, and building one would have meant either seven round trips per page load on a shop's connection, or a new endpoint — which is backend scope this phase deliberately did not take. See *Blocked*.
+- **`Alert` carries no implicit role.** Red announces, amber describes. Forced by the 403 regression above.
+- **Native `<select>` rather than the Radix listbox** everywhere a form posts to a server action, so the control submits with no JavaScript at all.
+
+#### Known issues / risks
+
+1. **Nothing has been looked at.** Repeating it because it is the whole of the risk in this phase.
+2. **The hand-written `ui/` components will not match a future upstream shadcn revision** line for line. Adding a component with the CLI later is safe; expecting `diff` against upstream to be clean is not.
+3. **`web/` still has no ESLint config** — carried from §1. Typecheck, Vitest, and the Next build cover it. Tailwind class names in particular are unlinted, so a typo is invisible until somebody looks at the page.
+4. **The five-colour chart ramp is only exercised at three colours.** A shop with four or more payment methods reaches chart-4 and chart-5, whose worst-case tritan separation is ΔE 3.9 — legal only because every bar is direct-labelled. If a categorical chart is ever added *without* labels, that stops being true.
+5. **`components.json` points at a host this environment cannot reach.** Harmless, and correct for anyone else.
+6. Issues carried from §1–§8a all still stand, including §8's three blockers — the backend is still hosted nowhere.
+
+#### Blocked / awaiting user
+
+| # | Question | Why it matters |
+|---|---|---|
+| 1 | **Should Ripoti get a takings trend over time?** It needs one new backend route (a multi-day series for a branch) — the existing daily-report endpoint computes a whole day per call, so fetching seven is not a reasonable substitute. This is backend scope and was not taken on unasked | It is the one thing in the original mockup that is not in the build, and it is the chart an owner would look at most |
+| 2 | **Does the phone ever follow?** Recorded as a permanent divergence. If that changes, it is a Phase 10 | A later agent reading two design languages needs to know which is intended |
+| 3 | Phase 8's three blockers, unchanged: which shop is the pilot, who has a low-end Android phone, and where the backend will be hosted | Phase 8 cannot close without them, and Phase 9 does not touch them |
+
+#### Handoff notes
+
+- **Add a colour by adding a token**, in `:root` *and* `.dark`, then exposing it in the `@theme inline` block. Never write a hex value into a component.
+- **`--primary` and the chart ramp are measured.** The reasoning is in the file's own comment. Re-measure before nudging either; the tools are `node scripts/validate_palette.js` from the dataviz skill for the ramp, and any contrast checker for the button.
+- **Dark is stepped, not flipped.** If you add a token to `:root`, add a deliberate dark value too — do not assume an inversion will do.
+- **The sidebar's collapsed state is a cookie the server reads** in `console-shell.tsx`. Moving it to `localStorage` would reintroduce the sideways snap on every page load.
+- **`ConsoleShell` is async** and reads `cookies()`. Pages calling it must stay server components.
+- **`Alert` has no implicit role.** Pass `role="alert"` only for genuine faults.
+- **The QR in `enrollment-form.tsx` is still `dangerouslySetInnerHTML`**, and the comment explaining why it is safe survived the rewrite intact. Read it before touching that block.

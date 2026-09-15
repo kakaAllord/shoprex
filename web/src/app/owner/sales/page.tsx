@@ -1,11 +1,22 @@
 import Link from 'next/link';
-import { BranchPicker } from '../../../components/branch-picker';
-import { ConsoleShell } from '../../../components/console-shell';
-import { EmptyState, ErrorState, Panel } from '../../../components/states';
-import { money, moment } from '../../../lib/format';
-import { requireConsole } from '../../../lib/api/guard';
-import { fetchMyBranches } from '../../../lib/api/organization';
-import { fetchSales } from '../../../lib/api/sales';
+import { ArrowLeftIcon, ArrowRightIcon, TriangleAlertIcon } from 'lucide-react';
+import { BranchPicker } from '@/components/branch-picker';
+import { ConsoleShell } from '@/components/console-shell';
+import { EmptyState, ErrorState, Panel } from '@/components/states';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { money, moment } from '@/lib/format';
+import { requireConsole } from '@/lib/api/guard';
+import { fetchMyBranches } from '@/lib/api/organization';
+import { fetchSales } from '@/lib/api/sales';
 
 export const dynamic = 'force-dynamic';
 
@@ -70,94 +81,93 @@ export default async function SalesPage({
     <ConsoleShell
       profile={profile}
       current="/owner/sales"
-      title="Mauzo · Sales"
-      lede={`Mauzo ya ${selected.name}, mapya kwanza. Kwa jumla ya siku na PDF, angalia Ripoti. ${selected.name}'s sales, newest first — for daily totals and a PDF, see Ripoti.`}
+      title="Mauzo"
+      lede={`${selected.name}, mapya kwanza · newest first. Kwa jumla ya siku na PDF, angalia Ripoti.`}
+      actions={
+        <BranchPicker branches={branches} selected={selected.id} basePath="/owner/sales" />
+      }
     >
-      <BranchPicker branches={branches} selected={selected.id} basePath="/owner/sales" />
-
       <Panel title={`Mauzo · Sales (${page.sales.length})`}>
         {page.sales.length === 0 ? (
           <EmptyState
             title={
-              cursor
-                ? 'Hakuna mauzo mengine · No more sales'
-                : 'Hakuna mauzo bado · No sales yet'
+              cursor ? 'Hakuna mauzo mengine · No more sales' : 'Hakuna mauzo bado · No sales yet'
             }
             hint="Mauzo yanaanza kwenye simu, kwenye skrini ya Mauzo."
           />
         ) : (
-          <div className="shoprex-tablewrap">
-            <table className="shoprex-table">
-              <thead>
-                <tr>
-                  <th>Wakati · When</th>
-                  <th>Aliyeuza · Sold by</th>
-                  <th className="shoprex-num">Vitu · Lines</th>
-                  <th className="shoprex-num">Jumla · Total</th>
-                  <th>Malipo · Paid by</th>
-                  <th>&nbsp;</th>
-                </tr>
-              </thead>
-              <tbody>
-                {page.sales.map((sale) => (
-                  <tr
-                    key={sale.id}
-                    className={sale.hasStockInconsistency ? 'shoprex-warnrow' : undefined}
-                  >
-                    <td>
-                      {moment(sale.createdAt)}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Wakati · When</TableHead>
+                <TableHead>Aliyeuza · Sold by</TableHead>
+                <TableHead className="text-right">Vitu</TableHead>
+                <TableHead className="text-right">Jumla · Total</TableHead>
+                <TableHead>Malipo · Paid by</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {page.sales.map((sale) => (
+                <TableRow key={sale.id}>
+                  <TableCell className="whitespace-nowrap text-muted-foreground">
+                    {moment(sale.createdAt)}
+                  </TableCell>
+                  <TableCell className="font-medium">
+                    <span className="flex items-center gap-2">
+                      {sale.soldByName}
                       {sale.hasStockInconsistency ? (
-                        <span className="shoprex-sub">
-                          Stoo ilikuwa pungufu · Stock was short
-                        </span>
+                        <Badge variant="warning" title="Stoo ilikuwa pungufu · Stock was short">
+                          <TriangleAlertIcon />
+                          hesabu
+                        </Badge>
                       ) : null}
-                    </td>
-                    <td>{sale.soldByName}</td>
-                    <td className="shoprex-num">{sale.lineCount}</td>
-                    <td className="shoprex-num">
-                      {money(sale.totalTzs)}
-                      {sale.debtTzs > 0 ? (
-                        <span className="shoprex-sub">
-                          Deni · Owed {money(sale.debtTzs)}
-                        </span>
-                      ) : null}
-                    </td>
-                    <td>{sale.paymentMethods.join(' + ')}</td>
-                    <td>
-                      <Link
-                        className="shoprex-linkbutton"
-                        href={`/owner/sales/${selected.id}/${sale.id}`}
-                      >
-                        Risiti · Receipt
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    </span>
+                  </TableCell>
+                  <TableCell className="tabular text-right">{sale.lineCount}</TableCell>
+                  <TableCell className="tabular text-right">
+                    <span className="font-medium">{money(sale.totalTzs)}</span>
+                    {sale.debtTzs > 0 ? (
+                      <span className="block text-xs text-warning-foreground">
+                        deni {money(sale.debtTzs)}
+                      </span>
+                    ) : null}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {sale.paymentMethods.join(' + ')}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button asChild variant="ghost" size="sm">
+                      <Link href={`/owner/sales/${selected.id}/${sale.id}`}>Risiti</Link>
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
 
-        <div className="shoprex-pager">
+        <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3">
           {cursor ? (
-            <Link className="shoprex-linkbutton" href={`/owner/sales?branch=${selected.id}`}>
-              ← Mwanzo · Back to the top
-            </Link>
+            <Button asChild variant="ghost" size="sm">
+              <Link href={`/owner/sales?branch=${selected.id}`}>
+                <ArrowLeftIcon />
+                Mwanzo · Back to the top
+              </Link>
+            </Button>
           ) : (
             <span />
           )}
 
           {page.nextCursor ? (
-            <Link
-              className="shoprex-linkbutton"
-              href={`/owner/sales?branch=${selected.id}&cursor=${page.nextCursor}`}
-            >
-              Mauzo ya zamani zaidi · Older sales →
-            </Link>
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/owner/sales?branch=${selected.id}&cursor=${page.nextCursor}`}>
+                Ya zamani zaidi · Older
+                <ArrowRightIcon />
+              </Link>
+            </Button>
           ) : (
-            <span className="shoprex-note" style={{ margin: 0 }}>
-              Mwisho wa orodha · End of the list
-            </span>
+            <span className="text-xs text-muted-foreground">Mwisho wa orodha · End of the list</span>
           )}
         </div>
       </Panel>

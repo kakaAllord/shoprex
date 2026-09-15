@@ -200,7 +200,26 @@ If a dependency, credential, browser login, platform decision, or user approval 
 
 ## Design rules
 
-Use the approved green-led visual language consistently across web and mobile: light backgrounds, dark neutral text/surfaces only where they improve hierarchy, Emerald as the main action color, Kijani/success green for completed or synced states, Amber for warnings, red only for destructive/error states. The main selling action must remain visually dominant.
+**The phone and the console no longer share a visual language, and that is deliberate** (decided 2026-09-15, Phase 9). They are different tools for different jobs — one is held in a hand over a counter, the other is read at a desk — so each gets the language that suits it. Do not "fix" the divergence by porting one to the other.
+
+**The React Native app (`mobile/`) keeps the original rule.** Green-led and light-surfaced: light backgrounds, dark neutral text/surfaces only where they improve hierarchy, Emerald as the main action color, Kijani/success green for completed or synced states, Amber for warnings, red only for destructive/error states. **The main selling action must remain visually dominant.** Tokens live in `mobile/src/app/theme.ts`.
+
+**The web console (`web/`) is built on shadcn/ui, with light and dark themes.** It holds to one rule, and every colour choice in it follows from that rule: **each colour does exactly one job.**
+
+| Colour | Allowed to mean | Never |
+|---|---|---|
+| Navy `--sidebar` | The sidebar. Where you are | A button, a figure, or a chart series |
+| Blue `--info` / `--ring` | Links, selection, focus, counts and rankings | Money, or the primary action |
+| Kijani `--primary` | Money in, the primary action, success — roughly one per screen | Decoration, headings, card borders |
+| Amber `--warning` | Money owed, and the shop's own rule refusing something | A failure — nothing broke |
+| Red `--destructive` | Destructive and error only | A negative stock figure (that is amber) |
+| Slate | Everything else — text, tables, borders, ground | — |
+
+Green used to do three of those jobs at once in the console, which is why none of them read. Blue took the chrome so green could go back to meaning money.
+
+Two values in `web/src/styles/globals.css` are **measured, not chosen**, and must not be nudged without re-measuring: `--primary` is emerald **700** because white on emerald 600 is 3.77:1 against WCAG AA's 4.5:1; and `--chart-1`/`--chart-2` are separated by **lightness** rather than hue, because green and blue at equal lightness collapse for blue-yellow colour blindness. Every chart writes its figure beside the bar, so colour is never the only signal.
+
+**Dark chrome is allowed in the console**, and only there. The sidebar is the darkest surface in the room in both themes so that it recedes and the one green thing on screen is the money.
 
 The interface is Swahili-first and English-ready. Keep copy short and action-oriented. Use shop vocabulary: Mauzo, Pokea mzigo, Stoo, Wafanyakazi, Ripoti, and Malipo where appropriate.
 

@@ -1,11 +1,20 @@
-import { ActionForm } from '../../../components/action-form';
-import { ConsoleShell } from '../../../components/console-shell';
-import { EnrollmentForm } from '../../../components/enrollment-form';
-import { EmptyState, ErrorState, OwnerOnlyNote, Panel } from '../../../components/states';
-import { lastSeen, moment } from '../../../lib/format';
-import { isOwner, requireConsole } from '../../../lib/api/guard';
-import { fetchDevices } from '../../../lib/api/devices';
-import { fetchMyBranches } from '../../../lib/api/organization';
+import { ActionForm } from '@/components/action-form';
+import { ConsoleShell } from '@/components/console-shell';
+import { EnrollmentForm } from '@/components/enrollment-form';
+import { EmptyState, ErrorState, OwnerOnlyNote, Panel } from '@/components/states';
+import { Badge } from '@/components/ui/badge';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { lastSeen, moment } from '@/lib/format';
+import { isOwner, requireConsole } from '@/lib/api/guard';
+import { fetchDevices } from '@/lib/api/devices';
+import { fetchMyBranches } from '@/lib/api/organization';
 import { revokeDeviceAction } from '../actions';
 
 export const dynamic = 'force-dynamic';
@@ -40,74 +49,74 @@ export default async function DevicesPage() {
     <ConsoleShell
       profile={profile}
       current="/owner/devices"
-      title="Simu · Devices"
-      lede="Simu ni ya tawi, si ya mtu. Yeyote aliyepangiwa tawi hilo huingia kwa nenosiri lake. A phone belongs to a branch — anyone assigned there signs in with their own password."
+      title="Simu"
+      lede="Simu ni ya tawi, si ya mtu. Yeyote aliyepangiwa tawi hilo huingia kwa nenosiri lake."
     >
-      <Panel title={`Simu · Phones (${active.length} hai · active)`}>
+      <Panel
+        title={`Simu · Phones (${active.length} hai · active)`}
+        description="Kufuta simu kunaanza kufanya kazi mara moja — hata kama tayari imeingia."
+      >
         {devices.length === 0 ? (
           <EmptyState
             title="Hakuna simu bado · No phones enrolled"
             hint="Tengeneza msimbo hapa chini, kisha uandike kwenye simu ya duka."
           />
         ) : (
-          <div className="shoprex-tablewrap">
-            <table className="shoprex-table">
-              <thead>
-                <tr>
-                  <th>Simu · Phone</th>
-                  <th>Tawi · Branch</th>
-                  <th>Hali · Status</th>
-                  <th>Ilionekana · Last seen</th>
-                  {isOwner(profile) ? <th>&nbsp;</th> : null}
-                </tr>
-              </thead>
-              <tbody>
-                {devices.map((device) => (
-                  <tr key={device.id}>
-                    <td>{device.name}</td>
-                    <td>{device.branchName}</td>
-                    <td>
-                      {device.status === 'ACTIVE' ? (
-                        <span className="shoprex-status shoprex-status--ok">Hai · Active</span>
-                      ) : (
-                        <span className="shoprex-status shoprex-status--error">
-                          Imefutwa · Revoked
-                          <span className="shoprex-sub">
-                            {device.revokedAt ? moment(device.revokedAt) : ''}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Simu · Phone</TableHead>
+                <TableHead>Tawi · Branch</TableHead>
+                <TableHead>Hali · Status</TableHead>
+                <TableHead>Ilionekana · Last seen</TableHead>
+                {isOwner(profile) ? <TableHead /> : null}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {devices.map((device) => (
+                <TableRow key={device.id}>
+                  <TableCell className="font-medium">{device.name}</TableCell>
+                  <TableCell className="text-muted-foreground">{device.branchName}</TableCell>
+                  <TableCell>
+                    {device.status === 'ACTIVE' ? (
+                      <Badge variant="success">Hai · Active</Badge>
+                    ) : (
+                      <span className="flex flex-col items-start gap-1">
+                        <Badge variant="destructive">Imefutwa · Revoked</Badge>
+                        {device.revokedAt ? (
+                          <span className="text-xs text-muted-foreground">
+                            {moment(device.revokedAt)}
                           </span>
-                        </span>
+                        ) : null}
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {lastSeen(device.lastSeenAt)}
+                  </TableCell>
+                  {isOwner(profile) ? (
+                    <TableCell className="text-right">
+                      {device.status === 'ACTIVE' ? (
+                        <ActionForm
+                          action={revokeDeviceAction}
+                          label="Futa · Revoke"
+                          busyLabel="Inafuta..."
+                          variant="danger"
+                          className="items-end"
+                          confirm={`Futa "${device.name}"? Simu hii itakataliwa mara moja. Revoke this phone? It stops working immediately.`}
+                        >
+                          <input type="hidden" name="deviceId" value={device.id} />
+                        </ActionForm>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
                       )}
-                    </td>
-                    <td>{lastSeen(device.lastSeenAt)}</td>
-                    {isOwner(profile) ? (
-                      <td>
-                        {device.status === 'ACTIVE' ? (
-                          <ActionForm
-                            action={revokeDeviceAction}
-                            label="Futa · Revoke"
-                            busyLabel="Inafuta..."
-                            variant="danger"
-                            confirm={`Futa "${device.name}"? Simu hii itakataliwa mara moja. Revoke this phone? It stops working immediately.`}
-                          >
-                            <input type="hidden" name="deviceId" value={device.id} />
-                          </ActionForm>
-                        ) : (
-                          <span className="shoprex-note">—</span>
-                        )}
-                      </td>
-                    ) : null}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    </TableCell>
+                  ) : null}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
-
-        <p className="shoprex-note">
-          Kufuta simu kunaanza kufanya kazi mara moja — hata kama tayari imeingia.
-          Revoking takes effect at the backend on the phone&rsquo;s very next request, not
-          when its session expires.
-        </p>
       </Panel>
 
       <Panel title="Ongeza simu · Enrol a phone">

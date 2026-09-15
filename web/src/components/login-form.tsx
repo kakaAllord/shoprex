@@ -2,7 +2,12 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import type { DevCredential } from '../lib/api/auth';
+import { CircleAlertIcon } from 'lucide-react';
+import type { DevCredential } from '@/lib/api/auth';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Field } from '@/components/field';
+import { cn } from '@/lib/utils';
 
 /**
  * Email and password sign-in.
@@ -65,73 +70,73 @@ export function LoginForm({ devCredentials }: { devCredentials: DevCredential[] 
   }
 
   return (
-    <form onSubmit={handleSubmit} className="shoprex-form">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       {devCredentials.length > 0 ? (
-        <div className="shoprex-devbox">
-          <p className="shoprex-devbox__title">
+        <div className="flex flex-col gap-2 rounded-lg border border-dashed bg-muted/50 p-3">
+          <p className="text-xs font-semibold text-muted-foreground">
             Akaunti za majaribio · Development accounts
           </p>
-          <div className="shoprex-devbox__choices">
+          <div className="flex flex-wrap gap-1.5">
             {devCredentials.map((credential) => (
               <button
                 key={credential.email}
                 type="button"
                 onClick={() => useAccount(credential)}
-                className={
+                className={cn(
+                  'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
                   activeAccount === credential.email
-                    ? 'shoprex-chip shoprex-chip--active'
-                    : 'shoprex-chip'
-                }
+                    ? 'border-transparent bg-primary text-primary-foreground'
+                    : 'bg-card hover:bg-accent',
+                )}
               >
                 {credential.label}
               </button>
             ))}
           </div>
-          <p className="shoprex-note">
-            Fomu imejazwa tayari. Bonyeza Ingia. The form is prefilled — just press
-            sign in.
+          <p className="text-xs text-muted-foreground">
+            Fomu imejazwa tayari. Bonyeza Ingia. The form is prefilled — just press sign in.
           </p>
         </div>
       ) : null}
 
-      <label className="shoprex-label" htmlFor="email">
-        Barua pepe · Email
-      </label>
-      <input
-        id="email"
-        name="email"
-        type="email"
-        autoComplete="username"
-        required
-        className="shoprex-input"
-        value={email}
-        onChange={(event) => setEmail(event.target.value)}
-      />
+      <Field htmlFor="email" label="Barua pepe · Email">
+        <Input
+          id="email"
+          name="email"
+          type="email"
+          autoComplete="username"
+          required
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+        />
+      </Field>
 
-      <label className="shoprex-label" htmlFor="password">
-        Nenosiri · Password
-      </label>
-      <input
-        id="password"
-        name="password"
-        type="password"
-        autoComplete="current-password"
-        required
-        minLength={8}
-        className="shoprex-input"
-        value={password}
-        onChange={(event) => setPassword(event.target.value)}
-      />
+      <Field htmlFor="password" label="Nenosiri · Password">
+        <Input
+          id="password"
+          name="password"
+          type="password"
+          autoComplete="current-password"
+          required
+          minLength={8}
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+        />
+      </Field>
 
       {error ? (
-        <p className="shoprex-alert" role="alert">
+        <p
+          role="alert"
+          className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm"
+        >
+          <CircleAlertIcon className="mt-0.5 size-4 shrink-0 text-destructive" />
           {error}
         </p>
       ) : null}
 
-      <button type="submit" className="shoprex-button" disabled={submitting}>
+      <Button type="submit" disabled={submitting}>
         {submitting ? 'Inaingia...' : 'Ingia · Sign in'}
-      </button>
+      </Button>
     </form>
   );
 }
