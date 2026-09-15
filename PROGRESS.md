@@ -19,7 +19,7 @@ If Part A and Part B ever disagree (e.g. the table says "Complete" but a section
 | 6 | Next.js owner and admin web app | Complete | Yes — every clause driven end to end over HTTP by all four roles, plus a live console smoke test, see §6 | 2026-08-23 |
 | 7 | Reports and PDF | Complete | Yes — every clause driven end to end over real HTTP, plus a live console and PDF-download check against a running backend and web server, see §7 | 2026-08-24 |
 | 8 | Pilot hardening and launch | In progress | Partly — every code deliverable is verified by real tests (see §8); **low-end Android testing and the pilot shop itself are outstanding**. Distribution and over-the-air updates configured 2026-08-25, unproven against EAS, see §8a | 2026-08-25 |
-| 9 | Web console on shadcn/ui | In progress | Partly — suite passes at **1,219**, and all 9 console routes were **driven in a real browser** at desktop and phone width against a fortnight of seeded trading, which found and fixed four layout bugs (see §9). What remains is a human eye on each screen and every write clicked through | 2026-09-15 |
+| 9 | Web console on shadcn/ui | In progress | Partly — suite passes at **1,229**, and all 9 console routes were **driven in a real browser** at desktop and phone width against a fortnight of seeded trading, which found four layout bugs **and a password reaching the URL bar** (see §9). All fixed. What remains is a human eye on each screen and every write clicked through | 2026-09-15 |
 
 **Status values:** `Not started` / `In progress` / `Blocked` / `Complete`. Only mark `Complete` when the acceptance-check column says `Yes`, backed by a real test run referenced in that phase's section below.
 
@@ -27,7 +27,7 @@ If Part A and Part B ever disagree (e.g. the table says "Complete" but a section
 
 Phase 9 rebuilt the **web console** on shadcn/ui with a collapsible sidebar, light and dark themes, and a colour system in which every colour does exactly one job. It found one real defect on the way: the existing primary button was **white on emerald 600 at 3.77:1**, against WCAG AA's 4.5:1 — a genuine accessibility failure in the Phase 0 design lock, unrelated to shadcn, now fixed at 5.48:1.
 
-The suite stands at **1,219** — backend unit 260 → **270**, backend e2e 613 → **627**, web 80 → **96**, mobile 226 (unchanged). The backend gained one read-only route, `GET /branches/:id/reports/series`, which is the only thing this phase adds outside the console; mobile was not touched at all.
+The suite stands at **1,229** — backend unit 260 → **270**, backend e2e 613 → **627**, web 80 → **106**, mobile 226 (unchanged). The backend gained one read-only route, `GET /branches/:id/reports/series`, which is the only thing this phase adds outside the console; mobile was not touched at all.
 
 A headless browser then drove all nine console routes at 1440px and 400px, which found **two real layout bugs that no test would ever have caught** — see §9. Both are fixed.
 
@@ -2124,7 +2124,7 @@ It was untracked build output left over from before the Duka→Shoprex rename: `
 
 ### §9 — The web console on shadcn/ui (2026-09-15)
 
-**Status:** In progress. **Verified:** Partly — the suite passes at **1,219**, the console typechecks and builds clean, 33 new tests cover what is genuinely new, and **all nine console routes were driven in a real headless browser** at 1440px and 400px against a live backend carrying a fortnight of seeded trading. That pass found four layout bugs, all fixed. What it does not cover is a human reading each screen, or any write clicked through a form. **Date:** 2026-09-15.
+**Status:** In progress. **Verified:** Partly — the suite passes at **1,229**, the console typechecks and builds clean, 43 new tests cover what is genuinely new, and **all nine console routes were driven in a real headless browser** at 1440px and 400px against a live backend carrying a fortnight of seeded trading. That pass found four layout bugs, all fixed. What it does not cover is a human reading each screen, or any write clicked through a form. **Date:** 2026-09-15.
 
 **Why this is a phase and not part of Phase 8.** The team asked for the console to be rebuilt on shadcn/ui and for a green-and-blue palette. Phase 8's remaining deliverables are physical — a low-end Android phone, a real pilot shop — and folding a console redesign into it would have let its acceptance check quietly stop meaning what it says. The owner chose a new phase on 2026-09-15; Phase 8 stays open and honest.
 
@@ -2206,9 +2206,9 @@ cd mobile  && npm run typecheck && npm test
 |---|---|---|
 | Backend unit | 260 / 12 suites | **270 / 12 suites** |
 | Backend e2e | 613 / 19 suites | **627 / 19 suites** |
-| Web | 80 / 15 files | **96 / 18 files** |
+| Web | 80 / 15 files | **106 / 19 files** |
 | Mobile | 226 / 13 suites | 226 / 13 suites (untouched) |
-| **Total** | **1,179** | **1,219** |
+| **Total** | **1,179** | **1,229** |
 
 Lint, typecheck, and build pass on backend and web; mobile typecheck and tests pass.
 
@@ -2232,6 +2232,61 @@ On the web side the comparison is a pure function, `web/src/lib/series.ts`, meas
 Two drawing decisions worth keeping: **both charts baseline at zero** (scaled to their own range, a steady week becomes a mountain range), and the trend chart keeps a tenth of headroom above the best day, because a line touching the top edge reads as cropped.
 
 The trend pill carries an arrow as well as a colour, so direction survives a reader who cannot separate green from amber — and survives a printout.
+
+#### Malipo as a donut
+
+At the owner's suggestion, and it is one of the few places a donut is the right
+answer rather than the lazy one: payment methods are a **true part-to-whole**
+— the backend makes a sale's payments settle its total exactly — over a
+handful of slices, and the question being asked is *what share of the day was
+cash*, which is a share question.
+
+The guardrails matter more than the chart:
+
+- **The hole holds the total** the slices add up to. Otherwise a reader has to
+  find that number elsewhere on the page before any of the shares mean
+  anything.
+- **Every slice states its own amount and percentage** in the legend. Comparing
+  two similar arcs by eye is precisely what a donut is bad at, so it is never
+  asked to; colour is not the encoding, it is the index.
+- **Below three slices it falls back to the bar list.** Two slices is a ratio,
+  and a ratio is a sentence — "two thirds of the day was cash" — not a picture.
+  One is a circle.
+- **Above six it folds the tail into `Nyingine`**, keeping every shilling, so
+  the shares still add up to the figure in the middle. Dropping the tail would
+  be worse than having no chart.
+- Slices are ordered largest-first from twelve o'clock, and carry a surface gap
+  so two adjacent ones never fuse — which matters here, because colour follows
+  the payment *kind*, and a shop with two cash methods gets two green slices.
+
+#### A password in the address bar
+
+Found by reading a dev-server log while chasing something else, and the most
+important thing in this phase.
+
+```text
+GET /login?email=admin%40shoprex.co.tz&password=shoprex12345 200
+```
+
+`LoginForm` and `SignupForm` are client components that submit with
+JavaScript, so both carried `<form onSubmit={...}>` and **no `method`**. A form
+with neither a method nor an action submits natively as a **GET to the current
+URL**, which is exactly what happens when a click lands before React has
+hydrated — or if the bundle never loads at all, on the sort of connection this
+product is built for. The browser then puts every field in the query string,
+so the password reaches the address bar, the browser history, the server's
+access log, and the `Referer` of the next request.
+
+Both forms now declare `method="post"`, which cannot put a credential in a URL.
+The native request still fails — neither route serves a POST — and that is the
+right outcome: the reader sees the sign-in page again rather than a password in
+their history. Both have a regression test asserting the attribute.
+
+**This predates the redesign.** `git show` on the Phase 1 form has the same
+`<form onSubmit={handleSubmit}>` with no method, so the leak has been there
+since the console first had a login screen. It was not introduced here, and it
+was not in the brief — it is fixed anyway, because a password in a URL is not
+something to write down and walk past.
 
 #### What driving a real browser found
 
@@ -2364,6 +2419,8 @@ Narrowed by the browser pass above, but most of it stands:
 
 #### Handoff notes
 
+- **A client-submitted form still needs `method="post"`.** Not for the happy path — for the click that lands before hydration, which submits natively as a GET and puts every field in the URL. Any new form in this console gets it.
+- **A donut is only honest between three and six slices**, and only for a true part-to-whole. `DONUT_MIN_SLICES` and `foldToDonutSlices` encode both ends; below the floor it falls back to the bar list on purpose.
 - **Both charts baseline at zero, and neither scales to its own range.** A chart cropped to its minimum turns a steady week into a mountain range, and this one is read by somebody deciding whether to worry.
 - **Text inside a scaled SVG viewBox is a trap.** It scales with the drawing, so a 10px label becomes four pixels on a phone. Axis labels are HTML positioned by percentage; only the plot is SVG. The same reasoning put the sparkline's end dot outside its SVG — `r` has no `vector-effect` escape hatch, so a circle in a stretched viewBox draws as an ellipse.
 - **The chart and the report must resolve their day through the same `dayWindow()`.** A test asserts they agree to the shilling. If you ever add a second way of deciding what "today" means, that test is the one that will tell you.

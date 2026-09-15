@@ -5,6 +5,11 @@ import { ConsoleShell } from '@/components/console-shell';
 import { EmptyState, ErrorState, Panel } from '@/components/states';
 import { StatCard } from '@/components/stat-card';
 import { BarList, type BarRow } from '@/components/charts/bar-list';
+import {
+  DONUT_MIN_SLICES,
+  DonutChart,
+  foldToDonutSlices,
+} from '@/components/charts/donut-chart';
 import { TrendChart } from '@/components/charts/trend-chart';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -151,6 +156,14 @@ export default async function ReportsPage({
 
   const trend = series ? compareToRun(series.points) : null;
 
+  const paymentRows = report.paymentBreakdown.map((row) => ({
+    label: row.methodName,
+    sublabel: `mauzo ${row.saleCount}`,
+    value: row.amountTzs,
+    display: money(row.amountTzs),
+    series: SERIES_BY_KIND[row.methodKind] ?? 4,
+  }));
+
   const todayQuery = `/owner/reports?branch=${selected.id}`;
   const branchQuery = (branchId: string) =>
     `/owner/reports?branch=${branchId}${date ? `&date=${date}` : ''}`;
@@ -266,16 +279,19 @@ export default async function ReportsPage({
         <Panel title="Malipo · Payments" description="How the day was paid">
           {report.paymentBreakdown.length === 0 ? (
             <EmptyState title="Hakuna malipo siku hii · No payments this day" />
-          ) : (
-            <BarList
-              rows={report.paymentBreakdown.map((row) => ({
-                label: row.methodName,
-                sublabel: `mauzo ${row.saleCount}`,
-                value: row.amountTzs,
-                display: money(row.amountTzs),
-                series: SERIES_BY_KIND[row.methodKind] ?? 4,
-              }))}
+          ) : paymentRows.length >= DONUT_MIN_SLICES ? (
+            // Payments are a true part-to-whole — the backend makes a sale's
+            // payments settle its total exactly — so the shares always add up
+            // to the figure in the middle.
+            <DonutChart
+              rows={foldToDonutSlices(paymentRows)}
+              centreLabel="jumla ya mauzo · total sold"
             />
+          ) : (
+            // One or two ways of being paid is a ratio, and a ratio is a
+            // sentence rather than a picture. A two-slice donut says less than
+            // two labelled bars and takes more room to say it.
+            <BarList rows={paymentRows} />
           )}
         </Panel>
 

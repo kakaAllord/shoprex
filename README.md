@@ -416,6 +416,15 @@ sparkline and a comparison against the run's own average rather than against
 yesterday: yesterday might have been a public holiday, and comparing to it
 makes an ordinary Tuesday look like a catastrophe.
 
+**Malipo is a donut**, because payment methods are a true part-to-whole — the
+backend makes a sale's payments settle its total exactly — and the question is
+what *share* of the day was cash. The hole holds the total the slices add up
+to, every slice states its own amount and percentage rather than being read off
+a colour, and it falls back to the bar list below three slices: two slices is a
+ratio, and a ratio is a sentence rather than a picture. Above six methods the
+tail folds into `Nyingine`, keeping every shilling so the shares still add up to
+the figure in the middle.
+
 That series comes from `GET /branches/:id/reports/series`, which resolves its
 days through the **same** `dayWindow()` the report and the sales list use — so
 the right-hand end of the chart is the very day whose totals are printed above

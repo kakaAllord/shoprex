@@ -91,4 +91,11 @@ describe('SignupForm', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Backend unreachable');
   });
+
+  /** See the note in `login-form.test.tsx`: a native GET would carry the password. */
+  it('can never put a password in a URL, even if its JavaScript never runs', () => {
+    const { container } = render(<SignupForm />);
+
+    expect(container.querySelector('form')).toHaveAttribute('method', 'post');
+  });
 });

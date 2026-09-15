@@ -69,8 +69,21 @@ export function LoginForm({ devCredentials }: { devCredentials: DevCredential[] 
     }
   }
 
+  // `method="post"` on a form this component submits with JavaScript is not
+  // redundant, and it is not about the happy path.
+  //
+  // A form with neither a method nor an action submits natively as a **GET to
+  // the current URL** — which is what happens if a click lands before React has
+  // hydrated, or if the bundle fails to load at all. The browser then puts every
+  // field in the query string, so the password ends up in the address bar, in
+  // browser history, in the server's access log, and in the `Referer` of the
+  // next request. It was observed doing exactly that: `GET /login?email=...&password=...`.
+  //
+  // Declaring POST cannot leak a credential into a URL. The request still fails
+  // — this route serves no POST — and that is the correct outcome: the seller
+  // sees the page again rather than a password in their history.
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+    <form method="post" onSubmit={handleSubmit} className="flex flex-col gap-4">
       {devCredentials.length > 0 ? (
         <div className="flex flex-col gap-2 rounded-lg border border-dashed bg-muted/50 p-3">
           <p className="text-xs font-semibold text-muted-foreground">

@@ -87,4 +87,16 @@ describe('LoginForm', () => {
     );
     expect(replace).not.toHaveBeenCalled();
   });
+
+  /**
+   * Observed leaking in a real browser: a click that lands before React has
+   * hydrated submits the form natively, and a form with no method is a GET —
+   * which puts the password in the address bar, the history, and the server
+   * log. Declaring POST makes that impossible.
+   */
+  it('can never put a password in a URL, even if its JavaScript never runs', () => {
+    const { container } = render(<LoginForm devCredentials={[]} />);
+
+    expect(container.querySelector('form')).toHaveAttribute('method', 'post');
+  });
 });
