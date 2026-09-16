@@ -253,6 +253,15 @@ enum AuditAction {
   BARCODE_ATTACHED
   PAYMENT_METHOD_CREATED
   PAYMENT_METHOD_UPDATED
+  // Phase 9 — account hygiene. Until now a password could not be changed by
+  // anybody and a person who left could not be switched off, so neither left
+  // a trace because neither could happen. Both are things an owner must be
+  // able to see afterwards: a reset they did not perform is the first sign
+  // something is wrong.
+  PASSWORD_CHANGED
+  PASSWORD_RESET
+  STAFF_DEACTIVATED
+  STAFF_REACTIVATED
 }
 
 /// Who did what, from which device, and when. `createdAt` is the backend

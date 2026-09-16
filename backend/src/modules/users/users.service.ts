@@ -8,7 +8,9 @@ import { AuditService } from '../audit/audit.service';
 import { AuthService } from '../auth/auth.service';
 import { CreateManagerDto } from './dto/create-manager.dto';
 import { CreateWorkerDto } from './dto/create-worker.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UpdatePermissionsDto } from './dto/update-permissions.dto';
+import { UpdateUserStatusDto } from './dto/update-status.dto';
 
 export interface StaffMemberView {
   id: string;
@@ -234,6 +236,120 @@ export class UsersService {
    * the same visibility rule as the list. Anything outside it — another
    * tenant, an unassigned branch, the owner's own account — answers 404.
    */
+  /**
+   * The owner sets somebody else's password.
+   *
+   * For a **worker this is the only recovery path there is.** Workers are
+   * created without an email on purpose, so there is no address to send a
+   * reset link to; without this route a forgotten password needs a developer
+   * with database access, which a pilot shop does not have.
+   *
+   * `requireStaffMember` does the work that keeps this safe: it scopes to the
+   * caller's own business and to `STAFF_ROLES`, so an owner cannot reach
+   * another tenant's people, cannot reach a platform administrator, and cannot
+   * reach themselves — their own password goes through `PATCH /auth/password`,
+   * which asks for the current one.
+   *
+   * **Every session the person is holding survives this**, and that is not an
+   * oversight: this route exists mostly for a forgotten password, where ending
+   * their sessions would be gratuitous. Locking somebody out is a different
+   * act with a different name — switch them off with `PATCH :id/status`.
+   */
+  async resetPassword(
+    principal: AuthenticatedUser,
+    userId: string,
+    dto: ResetPasswordDto,
+  ): Promise<StaffMemberView> {
+    const businessId = requireBusiness(principal);
+    const existing = await this.requireStaffMember(principal, userId);
+    const passwordHash = await AuthService.hashPassword(dto.newPassword);
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.update({
+        where: { id: existing.id },
+        data: { passwordHash },
+        include: { assignments: { select: { branchId: true } } },
+      });
+
+      await this.audit.record(
+        actorFrom(principal),
+        {
+          businessId,
+          branchId: user.assignments[0]?.branchId ?? null,
+          action: AuditAction.PASSWORD_RESET,
+          targetType: 'User',
+          targetId: user.id,
+          // Never the password, and never a hint at it. An audit line is read
+          // by more people than the person it is about.
+          summary: `Nenosiri la ${user.fullName} limewekwa upya na mmiliki · Password for ${user.fullName} was reset by the owner`,
+        },
+        tx,
+      );
+
+      return user;
+    });
+
+    this.logger.log(`Password reset for ${updated.id} by ${principal.userId}`);
+
+    return toStaffView(updated);
+  }
+
+  /**
+   * Switching a person off when they leave, or back on when they return.
+   *
+   * This is the offboarding V1 had no way to do. Stripping every permission
+   * came close and was not the same thing: it stops them selling, but they
+   * still appear by name on the branch phone's sign-in list, and a departed
+   * manager could still sign into the console and read the shop.
+   *
+   * Switching off reaches all of it, because `isActive` is already checked in
+   * every place identity is established — `login`, `loginDevice`,
+   * `deviceSignInOptions`, `profileFor`, and `PermissionsGuard`. The one gap
+   * was a token issued *before* the change, which `BusinessActiveGuard` now
+   * closes on the very next request, exactly as it does for a suspended shop.
+   *
+   * **Nothing is deleted.** Their sales, their deliveries, and every audit line
+   * naming them stay as they are, so a season worker who comes back is switched
+   * on again rather than recreated.
+   */
+  async setActive(
+    principal: AuthenticatedUser,
+    userId: string,
+    dto: UpdateUserStatusDto,
+  ): Promise<StaffMemberView> {
+    const businessId = requireBusiness(principal);
+    const existing = await this.requireStaffMember(principal, userId);
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.update({
+        where: { id: existing.id },
+        data: { isActive: dto.isActive },
+        include: { assignments: { select: { branchId: true } } },
+      });
+
+      await this.audit.record(
+        actorFrom(principal),
+        {
+          businessId,
+          branchId: user.assignments[0]?.branchId ?? null,
+          action: dto.isActive ? AuditAction.STAFF_REACTIVATED : AuditAction.STAFF_DEACTIVATED,
+          targetType: 'User',
+          targetId: user.id,
+          summary: dto.isActive
+            ? `${user.fullName} amerudishwa kazini · ${user.fullName} was switched back on`
+            : `${user.fullName} amesimamishwa · ${user.fullName} was switched off and can no longer sign in`,
+        },
+        tx,
+      );
+
+      return user;
+    });
+
+    this.logger.log(`Staff ${updated.id} isActive=${dto.isActive} by ${principal.userId}`);
+
+    return toStaffView(updated);
+  }
+
   private async requireStaffMember(
     principal: AuthenticatedUser,
     userId: string,

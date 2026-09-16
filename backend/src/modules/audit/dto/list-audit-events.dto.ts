@@ -1,6 +1,19 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
+
+/**
+ * The everyday events a busy shop produces by the hundred. They are not noise —
+ * they are the shop working — but a log they dominate is a log nobody scans,
+ * and the reason an owner opens this page is to find the *unusual* thing.
+ */
+export const ROUTINE_ACTIONS = [
+  'SALE_COMPLETED',
+  'STOCK_RECEIVED',
+  'DEVICE_SIGNED_IN',
+] as const;
+
+export type AuditScope = 'all' | 'notable';
 
 export class ListAuditEventsDto {
   @ApiPropertyOptional({
@@ -24,4 +37,14 @@ export class ListAuditEventsDto {
   @IsOptional()
   @IsUUID()
   deviceId?: string;
+
+  @ApiPropertyOptional({
+    enum: ['all', 'notable'],
+    default: 'all',
+    description:
+      '`notable` leaves out the events a working shop produces by the hundred — completed sales, received deliveries, and device sign-ins — so that a price change, a revoked phone, or a short count is findable rather than buried. `all` is everything, and is the default because an API that silently omits records is worse than one that makes you ask.',
+  })
+  @IsOptional()
+  @IsIn(['all', 'notable'])
+  scope: AuditScope = 'all';
 }

@@ -6,9 +6,12 @@ import { createBranch } from '../../lib/api/organization';
 import {
   createWorker,
   createManager,
+  resetStaffPassword,
   setPermissions,
+  setStaffActive,
   type UserPermission,
 } from '../../lib/api/staff';
+import { changeOwnPassword } from '../../lib/api/account';
 import { issueEnrollment, revokeDevice } from '../../lib/api/devices';
 import {
   attachBarcode,
@@ -185,6 +188,99 @@ export async function setPermissionsAction(
 
     return `Ruhusa za ${person.fullName} zimebadilishwa · Permissions updated`;
   }, ['/owner/staff']);
+}
+
+/**
+ * The owner sets somebody else's password.
+ *
+ * For a worker this is the **only** recovery there is — they have no email, so
+ * there is no reset link to send. Before Phase 9 a forgotten worker password
+ * needed a developer with database access.
+ */
+export async function resetStaffPasswordAction(
+  _previous: ActionState,
+  form: FormData,
+): Promise<ActionState> {
+  const userId = text(form, 'userId');
+  const newPassword = text(form, 'newPassword');
+
+  if (newPassword.length < 8) {
+    return {
+      error: 'Nenosiri lazima liwe na herufi 8 au zaidi · At least 8 characters',
+      message: null,
+      secret: null,
+    };
+  }
+
+  return run(async (token) => {
+    const person = await resetStaffPassword(token, userId, newPassword);
+
+    // Deliberately does not echo the password back. It was typed by the owner,
+    // who already knows it, and a success line is read over shoulders.
+    return `Nenosiri la ${person.fullName} limewekwa upya · Password set. Mpe yeye mwenyewe.`;
+  }, ['/owner/staff']);
+}
+
+/**
+ * Switching somebody off when they leave, or back on when they return.
+ *
+ * Not a delete — their sales and history stay. The backend refuses a session
+ * they were already holding on its very next request, so this bites now rather
+ * than whenever their token happens to expire.
+ */
+export async function setStaffActiveAction(
+  _previous: ActionState,
+  form: FormData,
+): Promise<ActionState> {
+  const userId = text(form, 'userId');
+  const isActive = text(form, 'isActive') === 'true';
+
+  return run(async (token) => {
+    const person = await setStaffActive(token, userId, isActive);
+
+    return isActive
+      ? `${person.fullName} amerudishwa · switched back on`
+      : `${person.fullName} amesimamishwa · switched off. Hawezi kuingia tena.`;
+  }, ['/owner/staff']);
+}
+
+/**
+ * Changing your own password — owner or manager, in this console.
+ *
+ * The current password is required by the backend, which is what stops a
+ * session token lifted from an unlocked browser becoming a permanent takeover.
+ */
+export async function changePasswordAction(
+  _previous: ActionState,
+  form: FormData,
+): Promise<ActionState> {
+  const currentPassword = text(form, 'currentPassword');
+  const newPassword = text(form, 'newPassword');
+  const confirmPassword = text(form, 'confirmPassword');
+
+  if (newPassword.length < 8) {
+    return {
+      error: 'Nenosiri jipya lazima liwe na herufi 8 au zaidi · At least 8 characters',
+      message: null,
+      secret: null,
+    };
+  }
+
+  // Caught here rather than at the backend, which has no second field to
+  // compare against and could not tell a typo from a decision.
+  if (newPassword !== confirmPassword) {
+    return {
+      error: 'Manenosiri mawili hayafanani · The two new passwords do not match',
+      message: null,
+      secret: null,
+    };
+  }
+
+  return run(async (token) => {
+    await changeOwnPassword(token, currentPassword, newPassword);
+
+    return 'Nenosiri limebadilishwa · Password changed. Vipindi vingine bado vipo.';
+  }, ['/owner/account']);
 }
 
 // --- Devices ---------------------------------------------------------------

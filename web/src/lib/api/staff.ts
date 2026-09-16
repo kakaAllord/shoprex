@@ -97,3 +97,41 @@ export function setPermissions(
     ...authorized(token),
   });
 }
+
+/**
+ * The owner sets somebody else's password.
+ *
+ * For a **worker this is the only recovery there is**: workers are created
+ * without an email, so there is no reset link to send and no "forgot password"
+ * to fall back on.
+ */
+export function resetStaffPassword(
+  token: string,
+  userId: string,
+  newPassword: string,
+): Promise<StaffMember> {
+  return apiRequest<StaffMember>(`/users/${userId}/password`, {
+    method: 'POST',
+    body: JSON.stringify({ newPassword }),
+    ...authorized(token),
+  });
+}
+
+/**
+ * Switching somebody off when they leave, or back on when they return.
+ *
+ * Not a delete: their sales and their history stay exactly as they are. The
+ * backend refuses a session they were already holding on its very next
+ * request, so this takes effect now rather than whenever their token expires.
+ */
+export function setStaffActive(
+  token: string,
+  userId: string,
+  isActive: boolean,
+): Promise<StaffMember> {
+  return apiRequest<StaffMember>(`/users/${userId}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ isActive }),
+    ...authorized(token),
+  });
+}

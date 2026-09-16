@@ -19,7 +19,13 @@ import { lastSeen } from '@/lib/format';
 import { isOwner, requireConsole } from '@/lib/api/guard';
 import { fetchMyBranches } from '@/lib/api/organization';
 import { fetchStaff, PERMISSION_LABELS } from '@/lib/api/staff';
-import { createManagerAction, createWorkerAction, setPermissionsAction } from '../actions';
+import {
+  createManagerAction,
+  createWorkerAction,
+  resetStaffPasswordAction,
+  setPermissionsAction,
+  setStaffActiveAction,
+} from '../actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -84,9 +90,17 @@ export default async function StaffPage() {
                     </span>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="secondary">
-                      {person.role === 'MANAGER' ? 'Meneja' : 'Mfanyakazi'}
-                    </Badge>
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <Badge variant="secondary">
+                        {person.role === 'MANAGER' ? 'Meneja' : 'Mfanyakazi'}
+                      </Badge>
+                      {/*
+                        Said on the row rather than by greying it out. A dimmed
+                        row reads as "broken"; a word reads as "this person has
+                        left", which is what actually happened.
+                      */}
+                      {!person.isActive ? <Badge variant="warning">Amesimamishwa</Badge> : null}
+                    </span>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {person.branchIds.length === 0
@@ -119,8 +133,8 @@ export default async function StaffPage() {
       {isOwner(profile) ? (
         <>
           <Panel
-            title="Badilisha ruhusa · Change what someone may do"
-            description="Kisanduku kisichotiwa alama ni ruhusa iliyoondolewa, na hubadilika papo hapo — hata kama tayari ameingia."
+            title="Mtu mmoja mmoja · One person at a time"
+            description="Ruhusa, nenosiri, na kumsimamisha aliyeondoka. Kisanduku kisichotiwa alama ni ruhusa iliyoondolewa, na hubadilika papo hapo."
           >
             {staff.length === 0 ? (
               <p className="text-sm text-muted-foreground">
@@ -138,7 +152,7 @@ export default async function StaffPage() {
                         {person.fullName}
                       </span>
                     </summary>
-                    <div className="pl-5 pt-3">
+                    <div className="flex flex-col gap-5 pl-5 pt-3">
                       <ActionForm
                         action={setPermissionsAction}
                         label="Hifadhi ruhusa · Save"
@@ -151,6 +165,69 @@ export default async function StaffPage() {
                           idPrefix={`perm-${person.id}`}
                         />
                       </ActionForm>
+
+                      <div className="flex flex-col gap-2 border-t pt-4">
+                        <Label htmlFor={`pw-${person.id}`}>
+                          Weka nenosiri jipya · Set a new password
+                        </Label>
+                        <p className="text-xs text-muted-foreground">
+                          {person.email
+                            ? 'Mpe yeye mwenyewe baada ya kuhifadhi.'
+                            : 'Mfanyakazi hana barua pepe, kwa hivyo hii ndiyo njia pekee ya kurudisha nenosiri lililosahaulika.'}
+                        </p>
+                        <ActionForm
+                          action={resetStaffPasswordAction}
+                          label="Weka · Set"
+                          busyLabel="..."
+                          variant="quiet"
+                          inline
+                        >
+                          <input type="hidden" name="userId" value={person.id} />
+                          <Input
+                            id={`pw-${person.id}`}
+                            name="newPassword"
+                            type="password"
+                            autoComplete="new-password"
+                            required
+                            minLength={8}
+                            placeholder="Herufi 8 au zaidi"
+                            className="w-56"
+                          />
+                        </ActionForm>
+                      </div>
+
+                      <div className="flex flex-col gap-2 border-t pt-4">
+                        <Label>
+                          {person.isActive
+                            ? 'Ameondoka kazini? · Have they left?'
+                            : 'Amerudi? · Have they come back?'}
+                        </Label>
+                        <p className="text-xs text-muted-foreground">
+                          {person.isActive
+                            ? 'Kumsimamisha kunamzuia mara moja — hata kipindi alichonacho sasa kinakatika. Hakuna kinachofutwa: mauzo yake na historia yake hubaki.'
+                            : 'Kumrudisha kunamruhusu kuingia tena kama zamani, na historia yake ipo kama ilivyokuwa.'}
+                        </p>
+                        <ActionForm
+                          action={setStaffActiveAction}
+                          label={
+                            person.isActive ? 'Msimamishe · Switch off' : 'Mrudishe · Switch on'
+                          }
+                          busyLabel="..."
+                          variant={person.isActive ? 'danger' : 'quiet'}
+                          confirm={
+                            person.isActive
+                              ? `Msimamishe ${person.fullName}? Hataweza kuingia tena, na kipindi alichonacho sasa kitakatika mara moja. Switch them off? They cannot sign in, and any session they hold stops working immediately.`
+                              : undefined
+                          }
+                        >
+                          <input type="hidden" name="userId" value={person.id} />
+                          <input
+                            type="hidden"
+                            name="isActive"
+                            value={person.isActive ? 'false' : 'true'}
+                          />
+                        </ActionForm>
+                      </div>
                     </div>
                   </details>
                 ))}

@@ -1,4 +1,10 @@
-import { ConflictException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import { AuditAction, DeviceStatus, User, UserPermission, UserRole } from '@prisma/client';
@@ -306,6 +312,81 @@ export class AuthService {
       expiresIn,
       user: this.toProfile(user, businessName, deviceId, branchIds),
     };
+  }
+
+  /**
+   * Changing your own password — the thing nobody in this product could do
+   * until Phase 9.
+   *
+   * The current password is required, and that requirement is the point. A
+   * session token lifted from an unlocked browser could otherwise be turned
+   * into a permanent takeover in one request: change the password, and the
+   * real owner is locked out of their own shop with no way back, because until
+   * now there was no way back. Proving the current password keeps a stolen
+   * *session* from becoming a stolen *account*.
+   *
+   * It deliberately does **not** end the caller's other sessions. V1 has no
+   * refresh tokens and no session registry to revoke against — see §1's known
+   * issues — so there is nothing to end. Somebody who needs another person's
+   * access to stop uses the thing that does stop it: switch them off.
+   */
+  async changePassword(
+    principal: AuthenticatedUser,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<{ changed: true }> {
+    const user = await this.prisma.user.findUnique({ where: { id: principal.userId } });
+
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('Account is no longer active');
+    }
+
+    if (!(await bcrypt.compare(currentPassword, user.passwordHash))) {
+      // The same wording sign-in uses for a wrong password. There is nothing to
+      // gain by being more specific to somebody who is already authenticated,
+      // and something to lose by being more specific to somebody who is not
+      // who they say they are.
+      throw new UnauthorizedException(
+        'Nenosiri la sasa si sahihi \u00b7 That is not your current password',
+      );
+    }
+
+    if (await bcrypt.compare(newPassword, user.passwordHash)) {
+      throw new BadRequestException(
+        'Nenosiri jipya ni lile lile \u00b7 The new password is the one you are already using',
+      );
+    }
+
+    const passwordHash = await AuthService.hashPassword(newPassword);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id: user.id }, data: { passwordHash } });
+
+      // Platform administrators have no business to file an audit line under,
+      // and no shop owner who would ever read it.
+      if (user.businessId) {
+        await this.audit.record(
+          {
+            userId: principal.userId,
+            role: principal.role,
+            deviceId: principal.deviceId,
+          },
+          {
+            businessId: user.businessId,
+            branchId: null,
+            action: AuditAction.PASSWORD_CHANGED,
+            targetType: 'User',
+            targetId: user.id,
+            summary: `${user.fullName} amebadilisha nenosiri lake \u00b7 ${user.fullName} changed their own password`,
+          },
+          tx,
+        );
+      }
+    });
+
+    this.logger.log(`Password changed by ${user.id}`);
+
+    return { changed: true };
   }
 
   async profileFor(principal: AuthenticatedUser): Promise<AuthenticatedProfile> {

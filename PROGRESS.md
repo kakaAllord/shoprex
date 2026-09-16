@@ -19,7 +19,7 @@ If Part A and Part B ever disagree (e.g. the table says "Complete" but a section
 | 6 | Next.js owner and admin web app | Complete | Yes — every clause driven end to end over HTTP by all four roles, plus a live console smoke test, see §6 | 2026-08-23 |
 | 7 | Reports and PDF | Complete | Yes — every clause driven end to end over real HTTP, plus a live console and PDF-download check against a running backend and web server, see §7 | 2026-08-24 |
 | 8 | Pilot hardening and launch | In progress | Partly — every code deliverable is verified by real tests (see §8); **low-end Android testing and the pilot shop itself are outstanding**. Distribution and over-the-air updates configured 2026-08-25, unproven against EAS, see §8a | 2026-08-25 |
-| 9 | Web console on shadcn/ui | In progress | Partly — suite passes at **1,229**, and all 9 console routes were **driven in a real browser** at desktop and phone width against a fortnight of seeded trading, which found four layout bugs **and a password reaching the URL bar** (see §9). All fixed. What remains is a human eye on each screen and every write clicked through | 2026-09-15 |
+| 9 | Web console on shadcn/ui, and account hygiene | In progress | Partly — suite passes at **1,263**, all 11 console routes **driven in a real browser** at desktop and phone width, which found four layout bugs **and a password reaching the URL bar**. Phase 9 also closed the two things V1 could not do at all: change a password, and switch off somebody who left (see §9). What remains is a human eye on each screen and every write clicked through | 2026-09-16 |
 
 **Status values:** `Not started` / `In progress` / `Blocked` / `Complete`. Only mark `Complete` when the acceptance-check column says `Yes`, backed by a real test run referenced in that phase's section below.
 
@@ -27,7 +27,7 @@ If Part A and Part B ever disagree (e.g. the table says "Complete" but a section
 
 Phase 9 rebuilt the **web console** on shadcn/ui with a collapsible sidebar, light and dark themes, and a colour system in which every colour does exactly one job. It found one real defect on the way: the existing primary button was **white on emerald 600 at 3.77:1**, against WCAG AA's 4.5:1 — a genuine accessibility failure in the Phase 0 design lock, unrelated to shadcn, now fixed at 5.48:1.
 
-The suite stands at **1,229** — backend unit 260 → **270**, backend e2e 613 → **627**, web 80 → **106**, mobile 226 (unchanged). The backend gained one read-only route, `GET /branches/:id/reports/series`, which is the only thing this phase adds outside the console; mobile was not touched at all.
+The suite stands at **1,263** — backend unit 260 → **270**, backend e2e 613 → **659**, web 80 → **108**, mobile 226 (unchanged). The backend gained four routes — `GET /branches/:id/reports/series` for the chart, and the three this phase added for account hygiene (`PATCH /auth/password`, `POST /users/:id/password`, `PATCH /users/:id/status`) — plus a `scope` filter on the audit log and four additive `AuditAction` values. Mobile was not touched at all.
 
 A headless browser then drove all nine console routes at 1440px and 400px, which found **two real layout bugs that no test would ever have caught** — see §9. Both are fixed.
 
@@ -2124,7 +2124,7 @@ It was untracked build output left over from before the Duka→Shoprex rename: `
 
 ### §9 — The web console on shadcn/ui (2026-09-15)
 
-**Status:** In progress. **Verified:** Partly — the suite passes at **1,229**, the console typechecks and builds clean, 43 new tests cover what is genuinely new, and **all nine console routes were driven in a real headless browser** at 1440px and 400px against a live backend carrying a fortnight of seeded trading. That pass found four layout bugs, all fixed. What it does not cover is a human reading each screen, or any write clicked through a form. **Date:** 2026-09-15.
+**Status:** In progress. **Verified:** Partly — the suite passes at **1,263**, the console typechecks and builds clean, 82 new tests cover what is genuinely new, and **all eleven console routes were driven in a real headless browser** at 1440px and 400px against a live backend carrying a fortnight of seeded trading. That pass found four layout bugs and a password reaching the URL bar, all fixed. What it does not cover is a human reading each screen, or any write clicked through a form. **Date:** 2026-09-16.
 
 **Why this is a phase and not part of Phase 8.** The team asked for the console to be rebuilt on shadcn/ui and for a green-and-blue palette. Phase 8's remaining deliverables are physical — a low-end Android phone, a real pilot shop — and folding a console redesign into it would have let its acceptance check quietly stop meaning what it says. The owner chose a new phase on 2026-09-15; Phase 8 stays open and honest.
 
@@ -2205,14 +2205,85 @@ cd mobile  && npm run typecheck && npm test
 | Surface | Before | After |
 |---|---|---|
 | Backend unit | 260 / 12 suites | **270 / 12 suites** |
-| Backend e2e | 613 / 19 suites | **627 / 19 suites** |
-| Web | 80 / 15 files | **106 / 19 files** |
+| Backend e2e | 613 / 19 suites | **659 / 20 suites** |
+| Web | 80 / 15 files | **108 / 19 files** |
 | Mobile | 226 / 13 suites | 226 / 13 suites (untouched) |
-| **Total** | **1,179** | **1,229** |
+| **Total** | **1,179** | **1,263** |
 
 Lint, typecheck, and build pass on backend and web; mobile typecheck and tests pass.
 
 **One real regression was caught by an existing test**, and it is the kind worth recording. The new `Alert` component set `role="alert"` on everything, which meant a **403 started announcing itself to a screen reader as an error**. Phase 6 had settled deliberately that a permission refusal is the shop's own rule rather than a fault. `states.test.tsx` asserted `queryByRole('alert')` was null and failed. The fix was to the component, not the test: `Alert` now carries **no implicit role**, and only genuine faults pass `role="alert"`. Red announces; amber describes.
+
+#### Account hygiene: the two things V1 could not do at all
+
+Found by answering the owner's question *"what should be added for V1?"*, and
+both verified in the code before being claimed rather than remembered:
+
+**1. Nobody could change a password. Anybody.** There was no route — not for an
+owner, not a manager, not a worker. A password known to the wrong person could
+only be changed by a developer running SQL, which a pilot shop does not have.
+For V1 that is not a missing feature; it is a shop with no lock on the back
+door.
+
+**2. A person who left could not be switched off.** `User.isActive` existed in
+the schema and **no route ever set it**. The nearest thing was stripping every
+permission, and that is not the same: it stops somebody selling, but they still
+appear by name on the branch phone's sign-in list, and a departed **manager**
+could still sign into the console and read the shop, because reading a branch
+list or a product needs no permission at all.
+
+Both are now ordinary operations:
+
+- `PATCH /auth/password` — your own, and **`currentPassword` is required**. That
+  requirement is the point: without it a session token lifted from an unlocked
+  browser becomes a permanent takeover in one request, and until this phase
+  there was no way back from that.
+- `POST /users/:id/password` — owner-only. For a **worker it is the only
+  recovery there is**, because workers are created without an email on purpose
+  and there is no reset link to send.
+- `PATCH /users/:id/status` — switch off, switch back on. Not a delete.
+
+**`BusinessActiveGuard` now checks the person as well as the shop**, which is
+what makes switching somebody off real rather than cosmetic. Every place
+identity is *established* already checked `isActive`; the gap was a token
+minted before the change, and this closes it on the very next request exactly
+as it has always done for a suspended shop. The test that matters in
+`account-hygiene.e2e-spec.ts` is the one proving a token that worked a moment
+ago answers **403** the instant its owner is switched off.
+
+Two consequences worth knowing:
+
+- **The guard's name is now narrower than its job**, and renaming it is a
+  rename, which this repository asks permission for. Left as
+  `BusinessActiveGuard` with a comment; rename it if you want to.
+- **A platform administrator now pays for that lookup**, where before they
+  skipped it. They have no business to check, but they are still a person whose
+  account could be switched off, and the alternative is a guard correct for
+  everybody except the most privileged role in the system.
+
+#### The activity log had been recorded for seven phases and never shown
+
+`GET /audit-events` has existed since Phase 2, owner-only and tested, and there
+was **no screen for it anywhere**. Meanwhile the backend was faithfully
+recording `PRODUCT_PRICE_CHANGED`, `BARCODE_ATTACHED`, `PERMISSIONS_CHANGED`,
+`DEVICE_REVOKED` and `STOCK_INCONSISTENCY`. An owner asking *"who dropped the
+price of sugar on Tuesday?"* could not find out, although the answer was in the
+database. This was not a new capability — it was the one already paid for.
+
+The screen needed one small backend addition to be usable. The first version
+showed 200 events and **nine in ten were completed sales**: a log everything is
+in is a log nobody scans, which is the opposite of the point. `?scope=notable`
+now leaves out the three things a working shop produces by the hundred — sales,
+deliveries, device sign-ins — and the page defaults to it with a toggle for
+everything. It **subtracts rather than whitelists**, so an action added in a
+later phase appears without anybody remembering to list it, which is the right
+default for a log whose job is to surface the unexpected. The API itself still
+defaults to `all`, because an API that silently omits records is worse than one
+that makes you ask.
+
+It also earns its keep for the reason a shop works at all: an owner who cannot
+stand at the counter every day has to delegate, and delegating is far easier
+when it can be checked afterwards.
 
 #### The chart, and the route it needed
 
@@ -2415,7 +2486,10 @@ Narrowed by the browser pass above, but most of it stands:
 |---|---|---|
 | 1 | ~~Should Ripoti get a takings trend over time?~~ **Answered: yes, build it.** Approved 2026-09-15 and done — `GET /branches/:branchId/reports/series`, a fortnight chart, and a sparkline on the takings tile. See *The chart, and the route it needed* above | Closed |
 | 2 | **Does the phone ever follow?** Recorded as a permanent divergence. If that changes, it is a Phase 10 | A later agent reading two design languages needs to know which is intended |
-| 3 | Phase 8's three blockers, unchanged: which shop is the pilot, who has a low-end Android phone, and where the backend will be hosted | Phase 8 cannot close without them, and Phase 9 does not touch them |
+| 3 | **Should an owner be able to see what is owed to them, in total, per person?** `Deni` is one of the three methods every shop is created with, but `debtsOf()` aggregates **within a single day** — so answering "how much is the shop owed?" means opening thirty daily reports and adding up by hand. That is money the shop is owed and cannot see. A read-only sum over existing `SalePayment` rows is not a CRM, but doc 02 §7 says a debt creates "no customer account, no history, no collection workflow", and that line is yours to move, not mine | Raised 2026-09-16 while answering "what should V1 add". **Not built** — it touches a boundary the owner drew deliberately. Everything needed is already stored; this is an aggregate and a screen, no schema change |
+| 4 | **Should there be a way to record a recount?** This one is a hole in the design's own reasoning. The negative-stock policy exists *specifically* so an owner can recount later — §3 and §5 both say so — but stock has exactly one write, `POST stock-receipts`. There is no route to record a recount, so a phone typo of 500 instead of 5 is permanently wrong, and a negative balance can only be cleared by receiving goods that never arrived | Raised 2026-09-16. **Not built.** "Corrections" sits on doc 03's deferred list, but that entry is bracketed with returns and refunds, which are *sale* corrections. Whether a stock recount is the same thing is a reading of your document, and the reading is yours |
+| 5 | Phase 8's three blockers, unchanged: which shop is the pilot, who has a low-end Android phone, and where the backend will be hosted | Phase 8 cannot close without them, and Phase 9 does not touch them |
+| 6 | **`GET /auth/dev-credentials` hands out working logins**, guarded only by `NODE_ENV` plus `DEV_LOGIN_AUTOFILL`. §8 blocker 3 says the pilot has no hosting and no CI, so it will be deployed by hand — and a mis-set `NODE_ENV` publishes credentials on a public URL | Not a feature, a risk. Either a pre-pilot checklist item or delete the route before the pilot. Raised 2026-09-16; **no action taken** |
 
 #### Handoff notes
 

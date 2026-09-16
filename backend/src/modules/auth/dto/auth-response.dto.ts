@@ -119,3 +119,15 @@ export class DeviceSignInOptionDto implements DeviceSignInOption {
   @ApiProperty({ example: 'Juma Hassan' })
   fullName!: string;
 }
+
+/**
+ * Deliberately says nothing but that it worked.
+ *
+ * No token, no profile, no timestamp: a password change is an acknowledgement,
+ * and anything else here would be a detail about a credential sitting in a
+ * response body for no reason.
+ */
+export class PasswordChangedDto {
+  @ApiProperty({ example: true })
+  changed!: true;
+}

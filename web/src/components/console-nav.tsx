@@ -4,6 +4,8 @@ import Link from 'next/link';
 import {
   BarChart3Icon,
   CreditCardIcon,
+  ScrollTextIcon,
+  UserCogIcon,
   LayoutGridIcon,
   PackageIcon,
   ReceiptIcon,
@@ -60,6 +62,13 @@ const OWNER_NAV: NavGroup[] = [
       { href: '/owner/staff', label: 'Wafanyakazi', english: 'Staff', icon: UsersIcon },
       { href: '/owner/devices', label: 'Simu', english: 'Devices', icon: SmartphoneIcon },
       { href: '/owner/payment-methods', label: 'Malipo', english: 'Payments', icon: CreditCardIcon, ownerOnly: true },
+      { href: '/owner/audit', label: 'Kumbukumbu', english: 'Activity log', icon: ScrollTextIcon, ownerOnly: true },
+    ],
+  },
+  {
+    label: 'Wewe',
+    items: [
+      { href: '/owner/account', label: 'Akaunti yangu', english: 'My account', icon: UserCogIcon },
     ],
   },
 ];

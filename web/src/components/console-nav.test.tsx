@@ -59,4 +59,25 @@ describe('ConsoleNav', () => {
       'aria-current',
     );
   });
+
+  /**
+   * The activity log is the owner's own record of who did what in their shop.
+   * A manager appearing in it is not somebody who should be able to read it.
+   */
+  it('keeps the activity log to the owner, and gives everybody their own account', () => {
+    inSidebar(<ConsoleNav profile={profile('OWNER')} current="/owner" />);
+
+    expect(screen.getByRole('link', { name: /Kumbukumbu/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Akaunti yangu/ })).toBeInTheDocument();
+  });
+
+  it('hides the activity log from a manager but never their own account', () => {
+    inSidebar(<ConsoleNav profile={profile('MANAGER')} current="/owner" />);
+
+    expect(screen.queryByRole('link', { name: /Kumbukumbu/ })).toBeNull();
+
+    // A manager has a password like anybody else, so they must be able to
+    // change it — that page is theirs, not the owner's.
+    expect(screen.getByRole('link', { name: /Akaunti yangu/ })).toBeInTheDocument();
+  });
 });

@@ -292,6 +292,32 @@ than a percentage that is an artefact of dividing by nearly nothing. A day the
 shop sold nothing on appears on the chart as a zero, never as a gap the line
 is drawn straight over.
 
+**Added in Phase 9 (2026-09-16): passwords, leaving, and a record of what
+happened.** Three things a shop needs before it can be handed to people who are
+not the owner.
+
+**Anyone can change their own password** — an owner or manager in the console,
+a worker on the shop phone — and doing so asks for the current one first. The
+**owner can set a worker's password**, which is the only recovery a worker has:
+workers are created without an email on purpose, so there is no reset link to
+send them.
+
+**Somebody who leaves can be switched off.** They can no longer sign in, their
+name disappears from the shop phone's sign-in list, and any session they were
+already holding stops working immediately rather than whenever it would have
+expired. Nothing is deleted: their sales and the record of what they did stay
+exactly as they are, so a seasonal worker who comes back is switched on again
+rather than created afresh.
+
+**The owner can read back what happened in their shop** — who changed a price,
+who attached a barcode, who revoked a phone, which sales came up short against
+the count, and who was switched on or off. It opens on the events worth
+noticing rather than on the day's sales, because a shop produces those by the
+hundred and a list everything is in is a list nobody reads. This matters for
+the thing that makes a shop work at all: an owner who cannot stand at the
+counter every day has to delegate, and delegating is far easier when it can be
+checked afterwards.
+
 ## 8. What V1 does not include
 
 V1 does not include customer accounts, CRM, customer history, returns, refunds, sale corrections, expenses, profit accounting, supplier management, purchase orders, e-commerce, delivery, loyalty, visual product recognition, branch stock transfers, mobile-money API integration, **receipt printing**, or offline multi-device synchronization.

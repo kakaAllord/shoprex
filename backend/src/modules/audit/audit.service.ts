@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { AuditAction, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { ROUTINE_ACTIONS, type AuditScope } from './dto/list-audit-events.dto';
 
 export interface AuditActor {
   userId: string | null;
@@ -37,6 +38,7 @@ export interface AuditEventView {
 export interface AuditQuery {
   limit: number;
   deviceId?: string;
+  scope?: AuditScope;
 }
 
 @Injectable()
@@ -83,6 +85,13 @@ export class AuditService {
       where: {
         businessId,
         ...(query.deviceId ? { deviceId: query.deviceId } : {}),
+        // `notable` is a subtraction, not a whitelist, and deliberately so: a
+        // new AuditAction added in a later phase turns up in this view without
+        // anybody remembering to add it, which is the right default for a log
+        // whose job is to surface the unexpected.
+        ...(query.scope === 'notable'
+          ? { action: { notIn: ROUTINE_ACTIONS as unknown as AuditAction[] } }
+          : {}),
       },
       orderBy: { createdAt: 'desc' },
       take: query.limit,

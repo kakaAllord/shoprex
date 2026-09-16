@@ -6,9 +6,11 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
 } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
@@ -36,7 +38,9 @@ import {
   DevCredentialDto,
   DeviceSignInOptionDto,
   LoginResultDto,
+  PasswordChangedDto,
 } from './dto/auth-response.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { DeviceLoginDto } from './dto/device-login.dto';
 import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
@@ -164,6 +168,30 @@ export class AuthController {
   @Get('me')
   me(@CurrentUser() user: AuthenticatedUser): Promise<AuthenticatedProfile> {
     return this.authService.profileFor(user);
+  }
+
+  @ApiOperation({
+    summary: 'Change your own password',
+    description:
+      'Anybody signed in may change their own — an owner, a manager, or a worker on a shop phone. Until Phase 9 **nobody could**, in which case a password known to the wrong person could only be changed by a developer with database access.\n\n`currentPassword` is required and is not ceremony. Without it, a session token lifted from an unlocked browser becomes a permanent takeover in one request: change the password and the real owner is locked out of their own shop. Proving the current password is what keeps a stolen *session* from becoming a stolen *account*.\n\nIt does **not** end your other sessions. V1 issues no refresh tokens and keeps no session registry, so there is nothing to revoke against — to stop somebody else\u2019s access, switch them off with `PATCH /users/{id}/status`.',
+  })
+  @ApiBearerAuth(BEARER_AUTH)
+  @ApiOkResponse({ type: PasswordChangedDto })
+  @ApiBadRequestResponse({
+    type: ErrorResponseDto,
+    description:
+      'The new password is shorter than 8 characters, or is the one already in use.',
+  })
+  @ApiUnauthorizedResponse({
+    type: ErrorResponseDto,
+    description: '`currentPassword` is wrong, or the account is no longer active.',
+  })
+  @Patch('password')
+  changePassword(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ChangePasswordDto,
+  ): Promise<{ changed: true }> {
+    return this.authService.changePassword(user, dto.currentPassword, dto.newPassword);
   }
 
   /**

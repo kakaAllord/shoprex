@@ -162,7 +162,10 @@ pinning exists to make visible.
 | `GET /api/v1/devices` | owner/manager | Owners see all devices; managers see only their branches' |
 | `GET /api/v1/devices/:id` | owner/manager | Another tenant's device answers `404`, never `403` |
 | `POST /api/v1/devices/:id/revoke` | owner | Refuses that phone at the backend on its very next request |
-| `GET /api/v1/audit-events` | owner | Who did what, from which device, and when |
+| `PATCH /api/v1/auth/password` | bearer | Change your own password. Requires the current one — that is what stops a lifted session becoming a stolen account |
+| `POST /api/v1/users/:id/password` | owner | Set a staff member's password. For a **worker this is the only recovery there is**: they have no email, so there is no reset link |
+| `PATCH /api/v1/users/:id/status` | owner | Switch a person off when they leave, or back on. Not a delete — history stays, and a session they already hold dies on its next request |
+| `GET /api/v1/audit-events` | owner | Who did what, from which device, and when. `?scope=notable` leaves out completed sales, deliveries and sign-ins so the unusual is findable |
 | `POST /api/v1/products` | SELL or RECEIVE_STOCK | Add a product; a worker may, so unknown items are addable mid-sale |
 | `GET /api/v1/products` | any staff | Manual search suggestions; matches anywhere in the name |
 | `GET /api/v1/products/lookup` | any staff | Barcode lookup (EAN-13); a mis-scan answers `400`, an unknown code `404` |
@@ -256,6 +259,28 @@ that branch.
 The code is a secret: it is returned once at issue, stored only as a SHA-256
 hash, never echoed back, and kept out of the audit log. Both public device
 routes sit in the strict auth rate-limit bucket.
+
+**Passwords, and people who leave.** Until Phase 9 **nobody could change a
+password** — not an owner, not a worker — so a password known to the wrong
+person could only be changed by a developer with database access. And nobody
+who left could be switched off: stripping every permission stopped them
+selling, but they still appeared by name on the branch phone's sign-in list,
+and a departed *manager* could still read the whole shop, because reading a
+branch list or a product needs no permission at all.
+
+Both are now ordinary operations. Changing your own password requires the
+current one, which is what stops a session token lifted from an unlocked
+browser becoming a permanent takeover. Setting somebody else's is owner-only
+and is the **only** recovery a worker has, since workers are deliberately
+created without an email.
+
+Switching a person off reaches everywhere at once, because `User.isActive` was
+already checked in every place identity is established — sign-in, device
+sign-in, the phone's people list, `/auth/me`, and `PermissionsGuard`. The one
+gap was a token minted *before* they left, and `BusinessActiveGuard` now closes
+it on the very next request, exactly as it has always done for a suspended
+shop. **Nothing is deleted**, so a season worker who returns is switched back
+on rather than recreated.
 
 **Suspending a shop account.** `Business.isActive` is enforced everywhere at
 once. A platform administrator flips it with `PATCH /businesses/{id}`; sign-in
@@ -578,6 +603,8 @@ that light is 2.2:1).
 | `/owner/staff` | Workers and managers: create, and change what they may do |
 | `/owner/devices` | Enrol a phone (the code is shown **once**) and revoke one |
 | `/owner/payment-methods` | How the shop is paid: add, rename, switch off |
+| `/owner/audit` | Who did what, from which phone, and when. Owner-only. Defaults to the notable events; a toggle shows everything |
+| `/owner/account` | Change your own password. Owners and managers alike |
 
 Navigation is a **collapsible sidebar** rather than a row of tabs: nine
 bilingual destinations did not scan as a single line, so they are grouped into
