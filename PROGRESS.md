@@ -2456,6 +2456,8 @@ Each of these goes through a rewritten `ActionForm`. On Bidhaa, Matawi, and Wafa
 1. **Matawi** → **+ Ongeza tawi**, add a branch. 2. **Wafanyakazi** → **+ Ongeza mtu**, add a worker, then a manager (the panel toggles between the two); then click a person's pencil icon and change their permissions. 3. **Simu** → issue an enrollment code (→ *the code and its QR appear, once*), then revoke a phone (→ *a confirm dialog first*). 4. **Bidhaa** → **+ Ongeza bidhaa**, add a product, then (still inline, unchanged) set a price, attach a barcode, discontinue and bring back. 5. **Malipo** → add a method, rename one, switch one off. 6. **/admin** as `admin@shoprex.co.tz` → onboard a shop, suspend it, restore it.
 → Each should show its own success line **next to the form**, not a banner at the top of the page.
 
+Three more writes were added later in the phase and are walked through separately, because they are about people rather than the shop's data: the password forms and the switch-off in **Features 8 and 9**.
+
 **Feature 7 — The console at phone width** *(worth a look — and carried over unfixed since §6)*
 
 1. Narrow the window to about 400px and walk every screen.
@@ -2463,7 +2465,48 @@ Each of these goes through a rewritten `ActionForm`. On Bidhaa, Matawi, and Wafa
 3. → The header wraps rather than crushing the title.
 → *This has been on the known-issues list since Phase 6. It should be better now; it has not been checked.*
 
-**Feature 8 — Adding and editing from a side panel, not a form sitting on the page** *(must pass — 2026-09-17)*
+**Feature 8 — Changing your own password** *(must pass — before this phase nobody could, at all)*
+
+1. Sign in as the owner. → The sidebar has a third group, **Wewe**, with one item: **Akaunti yangu**.
+2. Open it. → One panel, three password fields, and your email underneath the title.
+3. Fill in the **wrong** current password with a valid new one, and submit. → *Nenosiri la sasa si sahihi · That is not your current password*, next to the form. → *The wording is the same as a failed sign-in on purpose. Nothing is gained by telling somebody already holding your session which half they got wrong.*
+4. Put in your real current password, but type the new one differently in the two new-password boxes. → It is refused before the request leaves the browser. → *The backend has one new-password field, so the match is the console's job.*
+5. Enter the current password and a new one **identical to it**. → *Nenosiri jipya ni lile lile · The new password is the one you are already using*.
+6. Now change it properly. → A success line by the form.
+7. **Read the amber note under the form.** → It says in both languages that changing your password does **not** end other open sessions, and points at Wafanyakazi for that. → *V1 issues no refresh tokens and keeps no session registry. That note is the truth, said out loud rather than left to be discovered.*
+8. Sign out. Sign in with the **old** password → refused. With the new one → in.
+9. Open **Kumbukumbu**. → A *Nenosiri* line naming you. → *The audit line never contains the password, nor a hint at it.*
+
+**Feature 9 — Somebody leaves the shop** *(must pass — this is the one that has to be real, not cosmetic)*
+
+Setup: a worker with a phone enrolled (Phase 4's flow), signed in on it, and a manager signed into the console in a second browser.
+
+1. On **Wafanyakazi**, find the manager's row and expand it. → Below the permission checkboxes there are now two new blocks, each behind its own rule: **Weka nenosiri jipya** and **Ameondoka kazini?**
+2. Press **Msimamishe · Switch off**. → A confirm dialog first, naming the person and saying their current session stops working immediately. Confirm it.
+3. → Their row now carries an amber **Amesimamishwa** badge. → *The row is not greyed out. A dimmed row reads as "broken"; a word reads as "this person has left", which is what happened.*
+4. **Go to the manager's browser — the one already signed in — and click anything.** → They are refused with *Akaunti yako imesimamishwa · This account is no longer active. Ask the shop owner.* → **This is the step that matters.** *Their token is still cryptographically valid and has not expired. If they can still read a page here, switching somebody off is decoration. The e2e test asserting this is the most important one in the file.*
+5. Try to sign in as them at `/login`. → Refused.
+6. **Pick up the branch phone and open the sign-in list.** → They are **gone from the list of names**, not shown-and-rejected.
+7. Press **Mrudishe · Switch on** on their row. → No confirm dialog this time (bringing somebody back is not destructive). The badge goes. They can sign in again, and their history is exactly as it was.
+8. Check **Kumbukumbu**. → Two amber-ish lines: *amesimamishwa*, then *amerudishwa kazini*. → *Nothing was deleted. Their sales still belong to them.*
+9. Now the worker. Expand their row → the hint under **Weka nenosiri jipya** reads differently for them: *they have no email, so this is the only way back from a forgotten password.* Set one, then sign in as them on the phone with it.
+10. Try to switch off **yourself**, by putting your own user id through `POST /users/<your id>/password` in `/docs`. → 404. → *`requireStaffMember` scopes to this business **and** to staff roles, so an owner, another tenant's staff, and yourself are all simply not found. Not a special case — a narrower query.*
+
+**Feature 10 — Finding out who changed what** *(must pass — recorded since Phase 2, never once shown)*
+
+Setup: before opening the page, do a few things worth finding — change a product's price, revoke a phone, change somebody's permissions — and ring up a dozen sales so the log has chaff in it.
+
+1. Sidebar → **Usimamizi** → **Kumbukumbu**. → A list, newest first, and the heading counts what is in it.
+2. → It opens on **Za kuangalia**. Read the panel's description: sales, deliveries and sign-ins are left out. → *The first version of this page showed 200 events and nine in ten were completed sales. A log everything is in is a log nobody scans.*
+3. Find the price change. → A line in the shop's own words, an amber pill reading **Bei**, who did it, their role, and the time on the right.
+4. Look at what is **not** coloured. → Sales, deliveries, new products, new branches all carry a plain grey pill. Only five kinds are amber: *Hesabu*, *Ruhusa*, *Bei*, a revoked *Simu*, a *Nenosiri* reset. → *Colour here means "you might want to look at this", and it only works if most lines do not have it.*
+5. Press **Zote**. → The sales appear and the count jumps. Press **Za kuangalia** to go back. → *The toggle marks the current one with `aria-current`, not colour alone.*
+6. Find a line that happened on a phone. → It ends with *simu* and eight characters. → *In a shop where several people share a branch's handsets, which phone is half of "who".*
+7. If the shop has more than 200 events, scroll to the bottom. → A line saying only the most recent 200 are shown. → *There is no pagination in V1. If this line is ever hit routinely, that is the signal to build it.*
+8. Sign in as a **manager** and type `/owner/audit`. → The amber "the owner does this" panel, not a page of somebody else's business. → *Enforced by the backend, not by hiding the link — although the link is hidden too.*
+9. On a brand-new shop, open it. → *Hakuna la kuangalia · Nothing out of the ordinary*, which is a different sentence from the one you get under **Zote** on the same shop.
+
+**Feature 11 — Adding and editing from a side panel, not a form sitting on the page** *(must pass — 2026-09-17)*
 
 1. On **Bidhaa**, with no products yet, look at the page. → It is just the empty list and a search box; there is **no form taking up space** below it.
 2. Click **+ Ongeza bidhaa**, top right. → A panel slides in from the right; **everything behind it dims and blurs**. It does not navigate anywhere — the URL does not change.
@@ -2479,7 +2522,7 @@ Each of these goes through a rewritten `ActionForm`. On Bidhaa, Matawi, and Wafa
 
 Narrowed by the browser pass above, but most of it stands:
 
-1. **Whether any screen reads well.** 87 web tests assert behaviour; the browser pass asserts nothing overflows. Neither has an opinion about hierarchy, spacing, or whether a figure is where the eye goes first.
+1. **Whether any screen reads well.** 108 web tests assert behaviour; the browser pass asserts nothing overflows. Neither has an opinion about hierarchy, spacing, or whether a figure is where the eye goes first.
 2. **Every write, clicked through its own form.** The forms were all rebuilt on a new `ActionForm`. Not one has been submitted through the UI — only through the API, by the seed script.
 3. **The sidebar's interactions.** Collapse, expand, the tooltips when collapsed, `Ctrl`-`B`, and the mobile drawer opening. The *state* is unit-tested; the gestures are not.
 4. **The theme toggle as a control.** The browser pass set the theme by stamping the class directly, not by opening the menu and clicking. The menu itself is unit-tested, the round trip is not.
@@ -2487,6 +2530,9 @@ Narrowed by the browser pass above, but most of it stands:
 6. **`prefers-reduced-motion`.** Written, never observed.
 7. **A real touch screen**, and **the PDF download** into a real Downloads folder — both carried over from §7 and still true.
 8. **Colour on a real display.** The palette is arithmetic that was computed and validated. Screenshots came back from a headless renderer; no photons have reached an eye.
+9. **A switched-off person, on a phone that is already signed in.** The e2e suite proves the *token* stops working on the very next request. It does not prove what the Android app does when that 403 arrives mid-sale — whether it says something a shop worker understands, or dies with a red screen. That is Feature 9 step 4, and it is the single most important unverified thing in this phase.
+10. **A password actually typed.** `changePassword`, the owner's reset, and both refusals are covered by 26 backend tests through the API. Nothing has been typed into the three password boxes, and no browser password manager has been shown the form.
+11. **The activity log at a real shop's volume.** It was read against a seeded shop. Nobody has scanned it at 200 events to find out whether `scope=notable` actually leaves the interesting line visible, or whether the 200-row ceiling is reached in a week.
 
 #### Decisions made
 
