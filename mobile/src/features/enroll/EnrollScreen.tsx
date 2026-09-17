@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { colors, spacing } from '../../app/theme';
 import { Banner, BrandHeader, Card, Field, PrimaryButton, SecondaryButton } from '../../app/ui';
-import { ApiClient, ShoprexApiError } from '../../core/api/apiClient';
+import { ApiClient, ShoprexApiError, isHealthy } from '../../core/api/apiClient';
 import { ScannerSheet } from '../../components/ScannerSheet';
 
 /**
@@ -26,16 +26,38 @@ import { ScannerSheet } from '../../components/ScannerSheet';
 export function EnrollScreen({
   apiClient,
   onEnrolled,
-  onCheckConnection,
 }: {
   apiClient: ApiClient;
   onEnrolled: (deviceId: string) => void;
-  onCheckConnection: () => void;
 }) {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [offline, setOffline] = useState<string | null>(null);
+
+  // No button to tap to find out: a shop phone on a bad signal needs to be
+  // told, not asked to go looking.
+  useEffect(() => {
+    let cancelled = false;
+
+    apiClient
+      .fetchHealth()
+      .then((health) => {
+        if (!cancelled && !isHealthy(health)) {
+          setOffline('Hifadhidata ya Shoprex haipatikani kwa sasa · The Shoprex database is unreachable right now');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setOffline('Seva haipatikani · Cannot reach the Shoprex server');
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiClient]);
 
   /**
    * One submit path, whether the code was typed or scanned.
@@ -90,6 +112,12 @@ export function EnrollScreen({
         Mmiliki wa duka atakupa msimbo wa mara moja. Isome kwa kamera au uandike ·
         Your shop owner gives you a one-time code. Scan it, or type it below.
       </Text>
+
+      {offline ? (
+        <Banner testID="enroll-offline" tone="error" title="Hakuna muunganisho · No connection">
+          <Text style={styles.mutedText}>{offline}</Text>
+        </Banner>
+      ) : null}
 
       {error ? (
         <Banner testID="enroll-error" tone="error" title="Usajili haujakamilika · Enrolment failed">
@@ -149,11 +177,6 @@ export function EnrollScreen({
       />
 
       <View style={styles.footer}>
-        <SecondaryButton
-          testID="enroll-check-connection"
-          label="Angalia muunganisho · Check the connection"
-          onPress={onCheckConnection}
-        />
         <Text style={styles.mutedText}>
           Shoprex inahitaji mtandao. Simu hii itakuwa ya tawi lako, na kila
           mfanyakazi wa tawi ataingia kwa nenosiri lake · Shoprex needs a

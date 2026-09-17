@@ -5,14 +5,13 @@ import { ApiClient, Profile, Sale, Session, ShoprexApiError } from '../core/api/
 import { SessionStore } from '../core/session/sessionStore';
 import { DeviceLoginScreen } from '../features/auth/DeviceLoginScreen';
 import { EnrollScreen } from '../features/enroll/EnrollScreen';
-import { HealthScreen } from '../features/health/HealthScreen';
 import { HomeScreen } from '../features/home/HomeScreen';
 import { ProductsScreen } from '../features/products/ProductsScreen';
 import { ReceiveScreen } from '../features/receive/ReceiveScreen';
 import { ReceiptScreen } from '../features/sale/ReceiptScreen';
 import { SaleScreen } from '../features/sale/SaleScreen';
 import { StockScreen } from '../features/stock/StockScreen';
-import { Loading, SecondaryButton } from './ui';
+import { Loading } from './ui';
 import { colors, spacing } from './theme';
 
 /**
@@ -37,7 +36,6 @@ type Route =
   | { name: 'starting' }
   | { name: 'enroll' }
   | { name: 'signIn'; notice?: string | null }
-  | { name: 'health'; from: 'enroll' | 'signIn' }
   | { name: 'home' }
   | { name: 'sale' }
   | { name: 'receipt'; sale: Sale }
@@ -129,12 +127,6 @@ export default function App({
   // ever a dead end that only a force-quit escapes.
   useEffect(() => {
     const back = () => {
-      if (route.name === 'health') {
-        setRoute(route.from === 'enroll' ? { name: 'enroll' } : { name: 'signIn' });
-
-        return true;
-      }
-
       if (
         route.name === 'sale' ||
         route.name === 'receipt' ||
@@ -163,29 +155,11 @@ export default function App({
     );
   }
 
-  if (route.name === 'health') {
-    return (
-      <Shell>
-        <HealthScreen apiClient={apiClient} />
-        <View style={styles.healthFooter}>
-          <SecondaryButton
-            testID="health-back"
-            label="Rudi · Back"
-            onPress={() =>
-              setRoute(route.from === 'enroll' ? { name: 'enroll' } : { name: 'signIn' })
-            }
-          />
-        </View>
-      </Shell>
-    );
-  }
-
   if (route.name === 'enroll') {
     return (
       <Shell>
         <EnrollScreen
           apiClient={apiClient}
-          onCheckConnection={() => setRoute({ name: 'health', from: 'enroll' })}
           onEnrolled={(id) => {
             setDeviceId(id);
             void sessionStore.saveDeviceId(id);
@@ -203,7 +177,6 @@ export default function App({
           apiClient={apiClient}
           deviceId={deviceId ?? ''}
           notice={route.notice ?? startupError}
-          onCheckConnection={() => setRoute({ name: 'health', from: 'signIn' })}
           onForgetDevice={() => {
             void sessionStore.clearAll();
             setDeviceId(null);
@@ -350,5 +323,4 @@ const styles = StyleSheet.create({
     // Android draws behind the status bar; keep content clear of it.
     paddingTop: Platform.OS === 'android' ? (RNStatusBar.currentHeight ?? 0) : 0,
   },
-  healthFooter: { padding: spacing.lg, paddingTop: 0 },
 });

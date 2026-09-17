@@ -161,6 +161,8 @@ Mobile: Android shell confirming reachability to the backend, with loading/error
 
 Behaviour preserved exactly: a 503 from `/health/ready` is still treated as *reachable but unhealthy* (it carries a valid payload), any other 4xx/5xx raises `ShoprexApiError`, and the screen still renders explicit loading, error, and success states with the attempted address shown on failure. Colour tokens match `web/src/styles/globals.css` so both clients look like one product.
 
+> **Superseded 2026-09-17 (§9a).** `HealthScreen.tsx` and its dedicated screen are gone. `/health/ready`'s behaviour above is unchanged, but it is now checked silently on the enrolment screen's mount rather than behind a dedicated screen and button — see §9a for why and what replaced it.
+
 **Stack:** Expo SDK 57, React Native 0.86, React 19.2.3, TypeScript, Jest via `jest-expo`, `@testing-library/react-native`. `expo-dev-client` is a dependency and `app.json` declares the `expo-dev-client` plugin. Android package `tz.shoprex.shoprexmobile`; `INTERNET` permission declared (V1 is online-only).
 
 **Configuration moved out of code (owner request).** No address, port, or connection string is hardcoded in any application source any more:
@@ -724,6 +726,8 @@ Proven twice on purpose, as in Phase 3: the pure arithmetic in `src/domain/sale.
 
 **The Android app.** Enrol → sign in → permission-aware home → Mauzo → receipt, plus the Phase 1 connection check kept and now reachable from both sign-in screens. Scanner, search, unit choice, inline product creation, cart with quantity controls, payment sheet with change and debt, and a shareable receipt.
 
+> **Superseded 2026-09-17 (§9a).** The manual connection-check button and screen are gone; the same check now runs silently on the enrolment screen's mount. See §9a.
+
 **Phase 3 code that changed.** `StockService.issueStock` was split into a wrapper and `issueWithin(tx, …)` so the sale's stock removal joins the sale's own transaction instead of opening a second one beside it. `requireBranch`, previously private to `StockService`, moved to `src/common/branch-access.ts` and is now shared with sales — "who may receive stock into this branch" and "who may sell from it" drifting apart would be a security bug that reads like a refactor.
 
 #### Decisions made during the build
@@ -911,7 +915,7 @@ New this phase: the enrolment and sign-in screens. The device model behind them 
 | Turn Wi-Fi off, then confirm a payment | A clear failure, **no receipt, no stock removed**. Turn Wi-Fi back on and retry → **one** sale, not two |
 | `POST /devices/{id}/revoke` at `/docs` while the app is open, then sell | Refused on the very next request; back to sign-in with the backend's message. **Sajili simu upya** offers a way out rather than stranding the worker. The name list refuses too — a revoked phone will not even say who works there |
 | Remove `SELL` mid-shift, then sell | Refused immediately, not whenever the token expires |
-| Stop the backend, then open the app | An explicit *Seva haipatikani* state naming the address it tried — with **Angalia muunganisho** to check, and **Rudi** to get back |
+| Stop the backend, then open the app | An explicit *Seva haipatikani* banner appears on its own, immediately — no button to press, no separate screen to navigate to and back from (§9a, 2026-09-17) |
 | Create a product with no price, then sell it | Refused with a readable reason. Not a crash, and not a zero-shilling sale |
 
 ##### Worth a look, if there is time
@@ -2506,3 +2510,38 @@ Narrowed by the browser pass above, but most of it stands:
 - **`ConsoleShell` is async** and reads `cookies()`. Pages calling it must stay server components.
 - **`Alert` has no implicit role.** Pass `role="alert"` only for genuine faults.
 - **The QR in `enrollment-form.tsx` is still `dangerouslySetInnerHTML`**, and the comment explaining why it is safe survived the rewrite intact. Read it before touching that block.
+
+### §9a — Mobile: the manual connection check becomes automatic (2026-09-17)
+
+**Status:** Complete. **Verified:** Yes — mobile suite passes at 223/13 suites, typecheck clean. **Date:** 2026-09-17.
+
+**Why this is not part of Phase 9.** Phase 9's own files-changed list above says plainly: "Mobile: untouched. No phone code at all." This change touches only `mobile/`, made at the owner's direct instruction while preparing for production, and is recorded here rather than folded into Phase 9's narrative for the same reason Phase 9 itself was opened beside Phase 8 rather than inside it — so neither phase's record says something that did not happen inside it.
+
+**What changed.** `Angalia muunganisho · Check the connection` — a button on both the Enrolment and Sign-in screens, navigating to a dedicated `HealthScreen` that pinged `GET /health/ready` and displayed raw service/version/environment/database-latency fields — read as an engineer's diagnostic tool rather than shop-owner UX, and made a person go looking for bad news instead of being told it. It is gone. In its place:
+
+- **Enrolment screen.** A silent `fetchHealth()` call fires on mount; if the backend is unreachable or its database is down, a bilingual banner (`enroll-offline`) appears immediately, with no button pressed.
+- **Sign-in screen.** No new mechanism needed — it already called `listSignInOptions()` on mount and already showed *Seva haipatikani · Cannot reach the Shoprex server* automatically when that failed. Only the redundant manual button came out.
+- `HealthScreen.tsx` and its dedicated test file are deleted outright; nothing routes to it any more, and the `'health'` route, its back-button handling, and both `onCheckConnection` props are gone from `App.tsx`.
+- `GET /health/ready` and `apiClient.fetchHealth()` / `isHealthy()` are untouched on both ends and still exercised — now only from the enrolment screen's silent check and from `apiClient.test.ts`'s own 9 tests.
+
+**Files changed.** `mobile/src/features/enroll/EnrollScreen.tsx`, `mobile/src/features/auth/DeviceLoginScreen.tsx`, `mobile/src/app/App.tsx`, `mobile/src/app/App.test.tsx` (the health-route integration test rewritten to assert the automatic banner and the button's absence; the shared `routing()` test helper now defaults `/health/ready` to healthy so tests that do not care about it are not silently exercising the offline path). Deleted: `mobile/src/features/health/HealthScreen.tsx`, `mobile/src/features/health/HealthScreen.test.tsx`.
+
+**What this does not fix.** There is still no passive, background network-state detection anywhere in the app — no NetInfo, no listener, nothing installed that can tell the app it went offline while a screen just sits there. Every offline message, old and new, is reactive: it appears only once a request is actually attempted (on screen mount, now, rather than on a button press). A phone that loses signal while idle on either screen will not know until its next request. Real passive detection would need a new native dependency (`@react-native-community/netinfo` or `expo-network`) and a fresh native rebuild — raised with the owner, not built, kept as a follow-up below.
+
+**Tests and results.**
+
+```bash
+cd mobile && npm run typecheck && npm test
+```
+
+| Surface | Before | After |
+|---|---|---|
+| Mobile | 226 / 13 suites | **223 / 13 suites** |
+
+The three fewer tests are `HealthScreen.test.tsx`'s own, superseded by the new assertions in `App.test.tsx`.
+
+**Blocked / awaiting user.**
+
+| # | Question | Why it matters |
+|---|---|---|
+| 1 | **Is reactive-on-mount detection good enough for V1, or is passive NetInfo-style detection worth the new dependency and rebuild now?** | Decides whether to add `@react-native-community/netinfo` (or `expo-network`) before the pilot, or leave it for a later phase |

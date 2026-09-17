@@ -32,14 +32,12 @@ export function DeviceLoginScreen({
   notice,
   onSignedIn,
   onForgetDevice,
-  onCheckConnection,
 }: {
   apiClient: ApiClient;
   deviceId: string;
   notice?: string | null;
   onSignedIn: (session: Session) => void;
   onForgetDevice: () => void;
-  onCheckConnection: () => void;
 }) {
   const [people, setPeople] = useState<SignInOption[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
@@ -199,11 +197,6 @@ export function DeviceLoginScreen({
       )}
 
       <View style={styles.footer}>
-        <SecondaryButton
-          testID="login-check-connection"
-          label="Angalia muunganisho · Check the connection"
-          onPress={onCheckConnection}
-        />
         <SecondaryButton
           testID="login-forget-device"
           label="Sajili simu upya · Enrol this phone again"

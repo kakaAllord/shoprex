@@ -31,11 +31,20 @@ const profile = {
   branchIds: ['branch-1'],
 };
 
-/** A fetch stub that answers each path from a small table. */
+/**
+ * A fetch stub that answers each path from a small table.
+ *
+ * `/health/ready` defaults to healthy so tests that do not care about it are
+ * not silently exercising the enrolment screen's offline banner too; give an
+ * explicit `/health/ready` entry to test that path itself.
+ */
 function routing(routes: Record<string, { status?: number; body: unknown }>): typeof fetch {
   return jest.fn(async (url: string) => {
     const match = Object.entries(routes).find(([path]) => String(url).includes(path));
-    const answer = match?.[1] ?? { status: 404, body: { message: 'Not found' } };
+    const fallback = String(url).includes('/health/ready')
+      ? { status: 200, body: { status: 'ok', database: { status: 'ok' } } }
+      : { status: 404, body: { message: 'Not found' } };
+    const answer = match?.[1] ?? fallback;
 
     return {
       status: answer.status ?? 200,
@@ -353,30 +362,19 @@ describe('enrolling a phone', () => {
 });
 
 describe('a phone that cannot see its shop', () => {
-  it('offers the connection check from the enrolment screen', async () => {
+  it('says so on the enrolment screen itself, with no button to find out', async () => {
+    const fetchFn = jest.fn().mockRejectedValue(new Error('Network request failed')) as unknown as typeof fetch;
+
     render(
-      <App
-        apiClient={clientWith(routing({ '/health/ready': { body: { status: 'ok' } } }))}
-        sessionStore={new SessionStore(inMemoryStorage())}
-      />,
+      <App apiClient={clientWith(fetchFn)} sessionStore={new SessionStore(inMemoryStorage())} />,
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId('enroll-check-connection')).toBeTruthy();
+      expect(screen.getByTestId('enroll-offline')).toBeTruthy();
     });
 
-    fireEvent.press(screen.getByTestId('enroll-check-connection'));
-
-    await waitFor(() => {
-      expect(screen.getByText('Karibu Shoprex')).toBeTruthy();
-    });
-
-    // And back again — the check is not a place to get stuck.
-    fireEvent.press(screen.getByTestId('health-back'));
-
-    await waitFor(() => {
-      expect(screen.getByTestId('enroll-code')).toBeTruthy();
-    });
+    expect(screen.getByText('Seva haipatikani · Cannot reach the Shoprex server')).toBeTruthy();
+    expect(screen.queryByTestId('enroll-check-connection')).toBeNull();
   });
 
   it('lets a revoked phone be enrolled again instead of stranding it', async () => {
