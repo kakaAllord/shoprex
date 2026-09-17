@@ -19,7 +19,7 @@ If Part A and Part B ever disagree (e.g. the table says "Complete" but a section
 | 6 | Next.js owner and admin web app | Complete | Yes — every clause driven end to end over HTTP by all four roles, plus a live console smoke test, see §6 | 2026-08-23 |
 | 7 | Reports and PDF | Complete | Yes — every clause driven end to end over real HTTP, plus a live console and PDF-download check against a running backend and web server, see §7 | 2026-08-24 |
 | 8 | Pilot hardening and launch | In progress | Partly — every code deliverable is verified by real tests (see §8); **low-end Android testing and the pilot shop itself are outstanding**. Distribution and over-the-air updates configured 2026-08-25, unproven against EAS, see §8a | 2026-08-25 |
-| 9 | Web console on shadcn/ui, and account hygiene | In progress | Partly — suite passes at **1,263**, all 11 console routes **driven in a real browser** at desktop and phone width, which found four layout bugs **and a password reaching the URL bar**. Phase 9 also closed the two things V1 could not do at all: change a password, and switch off somebody who left (see §9). What remains is a human eye on each screen and every write clicked through | 2026-09-16 |
+| 9 | Web console on shadcn/ui, and account hygiene | In progress | Partly — suite passes at **1,266**, all 11 console routes **driven in a real browser** at desktop and phone width, which found four layout bugs **and a password reaching the URL bar**. Phase 9 also closed the two things V1 could not do at all: change a password, and switch off somebody who left (see §9). Bidhaa, Matawi, and Wafanyakazi's add/edit forms moved into side panels on 2026-09-17, also driven in a real browser (see §9, *Side panels replace inline add-forms*). What remains is a human eye on each screen and every write clicked through | 2026-09-17 |
 
 **Status values:** `Not started` / `In progress` / `Blocked` / `Complete`. Only mark `Complete` when the acceptance-check column says `Yes`, backed by a real test run referenced in that phase's section below.
 
@@ -2379,6 +2379,20 @@ Also confirmed, in passing: the console **behaved correctly under a rate limit**
 
 The automated browser pass now reports clean: no page errors and no horizontal overflow on nine routes at two widths.
 
+#### Side panels replace inline add-forms, on Bidhaa, Matawi, and Wafanyakazi (2026-09-17)
+
+At the owner's instruction, going into production: a bulky "add" form sitting permanently on the page, taking up space whether or not anyone was using it, becomes a **+ button and a panel that slides in from the right**, everything behind it dimmed and blurred (`Sheet`'s existing overlay, now also `backdrop-blur-sm`, since it was dimming only and the request was for both). One new component, `SidePanel` (`web/src/components/side-panel.tsx`), wraps the shadcn `Sheet` this console already had for the mobile nav drawer but had never used for a form — every field inside stacks in a single column, deliberately, because the panel's width does not grow with the viewport the way a full page does.
+
+**Bidhaa and Matawi** each lost their standing "Ongeza ..." panel; the same `ActionForm` now lives inside the side panel, opened from the header. A non-owner still sees a one-line `OwnerOnlyNote` where the button would be, unchanged from before — the button disappearing for them is not a new silence, it replaces a form they could never submit anyway.
+
+**Wafanyakazi** changed more. The whole **"Mtu mmoja mmoja"** panel — an accordion of every person, expand one to change their permissions — is gone outright. In its place, the person's own table row carries a pencil icon that opens the same kind of side panel, scoped to that one person: permissions, a password field, and switch-off, exactly what the accordion held. **With no staff at all, nothing about editing them is shown** — there is no longer a panel that exists just to say so, because there is no longer a panel at all when the table itself is empty. "Add a worker" and "add a manager" collapsed into one **+ Ongeza mtu** button and one panel that toggles which form it shows (`web/src/components/staff-add-panel.tsx`); toggling it, then closing without submitting, used to leave it on whichever form was open last time — found by actually clicking through this in a browser, not by the type checker or the unit tests, and fixed by resetting the toggle when the panel closes (`SidePanel` grew an `onOpenChange` callback for exactly this). The table itself now lists **managers before workers** rather than in whatever order the backend happened to return them, a stable sort so people within each group keep their original order.
+
+Nothing about the backend, the server actions, or `GET /health/ready`-style endpoints changed — this is presentation only. `web/src/components/branch-form.tsx` and `web/src/components/permission-checks.tsx` are reused unmodified inside the new panels.
+
+**Files changed.** New: `web/src/components/side-panel.tsx` (+test), `web/src/components/staff-add-panel.tsx` (+test), `web/src/components/staff-edit-panel.tsx`. Edited: `web/src/app/owner/products/page.tsx`, `web/src/app/owner/branches/page.tsx`, `web/src/app/owner/staff/page.tsx`, `web/src/components/ui/sheet.tsx` (added the blur).
+
+**Tests and results.** Web: 108 → **114** tests, 20 → **21** files. Typecheck, the full suite, and `next build` all pass. Verified by hand in a real Chromium against the running dev server and seeded owner login — the toggle-reset bug above was caught this way, not by an automated test that already existed.
+
 #### Manual testing
 
 **The walkthrough below has NOT been done, and it is still most of the check.** A headless browser proves no screen throws and no screen overflows. It does not know whether a page *reads*, whether a colour is right, or whether a button is where a thumb expects it — and it has not clicked a single write through a form.
@@ -2437,9 +2451,9 @@ The automated browser pass now reports clean: no page errors and no horizontal o
 
 **Feature 6 — Every write still works** *(must pass — the forms were all rebuilt)*
 
-Each of these goes through a rewritten `ActionForm`. Do all of them:
+Each of these goes through a rewritten `ActionForm`. On Bidhaa, Matawi, and Wafanyakazi, "add" now opens from a **+ button at the top right in a side panel** (2026-09-17, §9a below) rather than sitting on the page — expect that panel, not an inline form, for those three. Do all of them:
 
-1. **Matawi** → add a branch. 2. **Wafanyakazi** → add a worker, add a manager, change somebody's permissions. 3. **Simu** → issue an enrollment code (→ *the code and its QR appear, once*), then revoke a phone (→ *a confirm dialog first*). 4. **Bidhaa** → add a product, set a price, attach a barcode, discontinue and bring back. 5. **Malipo** → add a method, rename one, switch one off. 6. **/admin** as `admin@shoprex.co.tz` → onboard a shop, suspend it, restore it.
+1. **Matawi** → **+ Ongeza tawi**, add a branch. 2. **Wafanyakazi** → **+ Ongeza mtu**, add a worker, then a manager (the panel toggles between the two); then click a person's pencil icon and change their permissions. 3. **Simu** → issue an enrollment code (→ *the code and its QR appear, once*), then revoke a phone (→ *a confirm dialog first*). 4. **Bidhaa** → **+ Ongeza bidhaa**, add a product, then (still inline, unchanged) set a price, attach a barcode, discontinue and bring back. 5. **Malipo** → add a method, rename one, switch one off. 6. **/admin** as `admin@shoprex.co.tz` → onboard a shop, suspend it, restore it.
 → Each should show its own success line **next to the form**, not a banner at the top of the page.
 
 **Feature 7 — The console at phone width** *(worth a look — and carried over unfixed since §6)*
@@ -2448,6 +2462,18 @@ Each of these goes through a rewritten `ActionForm`. Do all of them:
 2. → Tables scroll **sideways inside their own card**; the page itself never scrolls horizontally.
 3. → The header wraps rather than crushing the title.
 → *This has been on the known-issues list since Phase 6. It should be better now; it has not been checked.*
+
+**Feature 8 — Adding and editing from a side panel, not a form sitting on the page** *(must pass — 2026-09-17)*
+
+1. On **Bidhaa**, with no products yet, look at the page. → It is just the empty list and a search box; there is **no form taking up space** below it.
+2. Click **+ Ongeza bidhaa**, top right. → A panel slides in from the right; **everything behind it dims and blurs**. It does not navigate anywhere — the URL does not change.
+3. Fill in a name and a unit, press **Ongeza bidhaa**. → A success line appears **inside the panel**, next to the form. Close the panel (the **✕**, clicking outside, or **Esc**) → the product is on the list behind it.
+4. Do the same on **Matawi** (**+ Ongeza tawi**) and check the branch appears.
+5. On **Wafanyakazi**, click **+ Ongeza mtu**. → A panel with two buttons, **Mfanyakazi** and **Meneja**, switches which form is showing. Add a worker.
+6. Close the panel, reopen **+ Ongeza mtu** again. → It opens back on **Mfanyakazi**, not wherever you last left it. → *A worker toggled to Meneja and closed without submitting used to stay on Meneja the next time — fixed by resetting the toggle when the panel closes; this step is what would catch it coming back.*
+7. On the Wafanyakazi table, click a person's **pencil icon** on the right. → The same kind of panel opens, titled with their name, holding permissions, a password field, and switch-off — everything that used to live in an expandable row is here instead.
+8. With **no staff at all** (a fresh shop, or after revoking everyone), look at Wafanyakazi. → There is **no separate "one person at a time" panel** sitting empty or explaining that nobody exists — the table's own empty state is the only thing said about it.
+9. Add two workers and a manager. → The manager's row is **above** both workers' rows, regardless of the order they were created in.
 
 **What has no automated coverage at all**
 

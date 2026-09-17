@@ -1,9 +1,10 @@
-import { SearchIcon } from 'lucide-react';
+import { PlusIcon, SearchIcon } from 'lucide-react';
 import { ActionForm } from '@/components/action-form';
 import { ConsoleShell } from '@/components/console-shell';
 import { EmptyState, ErrorState, OwnerOnlyNote, Panel } from '@/components/states';
 import { Field } from '@/components/field';
 import { NativeSelect } from '@/components/native-select';
+import { SidePanel } from '@/components/side-panel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -67,20 +68,86 @@ export default async function ProductsPage({
       title="Bidhaa"
       lede="Bei ni moja kwa kila kipimo, kwa duka zima. Kubadilisha bei hakubadilishi risiti za zamani."
       actions={
-        <form action="/owner/products" className="flex items-center gap-2">
-          <Input
-            type="search"
-            name="q"
-            defaultValue={q ?? ''}
-            placeholder="Tafuta bidhaa · Search"
-            aria-label="Tafuta bidhaa · Search products"
-            className="w-44 sm:w-56"
-          />
-          <Button type="submit" variant="outline" size="icon">
-            <SearchIcon />
-            <span className="sr-only">Tafuta · Search</span>
-          </Button>
-        </form>
+        <>
+          <form action="/owner/products" className="flex items-center gap-2">
+            <Input
+              type="search"
+              name="q"
+              defaultValue={q ?? ''}
+              placeholder="Tafuta bidhaa · Search"
+              aria-label="Tafuta bidhaa · Search products"
+              className="w-44 sm:w-56"
+            />
+            <Button type="submit" variant="outline" size="icon">
+              <SearchIcon />
+              <span className="sr-only">Tafuta · Search</span>
+            </Button>
+          </form>
+
+          {isOwner(profile) ? (
+            <SidePanel
+              trigger={
+                <Button size="sm">
+                  <PlusIcon />
+                  Ongeza bidhaa · Add product
+                </Button>
+              }
+              title="Ongeza bidhaa · Add a product"
+              description="Jina na kipimo kimoja vinatosha. Bei, namba, na vipimo vingine vinaweza kuja baadaye."
+            >
+              <ActionForm
+                action={createProductAction}
+                label="Ongeza bidhaa · Add product"
+                busyLabel="Inaongeza..."
+              >
+                <div className="grid grid-cols-1 gap-3">
+                  <Field htmlFor="product-name" label="Jina · Name">
+                    <Input id="product-name" name="name" required placeholder="Coca-Cola 500ml" />
+                  </Field>
+
+                  <Field htmlFor="product-unit" label="Kipimo · Unit">
+                    <Input
+                      id="product-unit"
+                      name="unitName"
+                      required
+                      list="shoprex-unit-names"
+                      placeholder="Kipande"
+                    />
+                    <datalist id="shoprex-unit-names">
+                      {unitNames.map((name) => (
+                        <option key={name} value={name} />
+                      ))}
+                    </datalist>
+                  </Field>
+
+                  <Field htmlFor="product-price" label="Bei · Price" hint="Si lazima · optional">
+                    <Input
+                      id="product-price"
+                      name="priceTzs"
+                      type="number"
+                      min={0}
+                      step={1}
+                      placeholder="1000"
+                    />
+                  </Field>
+
+                  <Field
+                    htmlFor="product-barcode"
+                    label="Namba · Barcode"
+                    hint="Si lazima · optional"
+                  >
+                    <Input
+                      id="product-barcode"
+                      name="barcode"
+                      inputMode="numeric"
+                      placeholder="EAN-13"
+                    />
+                  </Field>
+                </div>
+              </ActionForm>
+            </SidePanel>
+          ) : null}
+        </>
       }
     >
       <Panel
@@ -94,7 +161,7 @@ export default async function ProductsPage({
                 ? `Hakuna bidhaa yenye jina "${q}" · Nothing by that name`
                 : 'Hakuna bidhaa bado · No products yet'
             }
-            hint="Ongeza bidhaa hapa chini, au ongeza ikiwa kwenye simu wakati wa mauzo."
+            hint="Ongeza bidhaa kwa kitufe kilicho juu, au ongeza ikiwa kwenye simu wakati wa mauzo."
           />
         ) : (
           <div className="divide-y">
@@ -242,61 +309,11 @@ export default async function ProductsPage({
         ) : null}
       </Panel>
 
-      <Panel
-        title="Ongeza bidhaa · Add a product"
-        description="Jina na kipimo kimoja vinatosha. Bei, namba, na vipimo vingine vinaweza kuja baadaye."
-      >
-        {isOwner(profile) ? (
-          <ActionForm
-            action={createProductAction}
-            label="Ongeza bidhaa · Add product"
-            busyLabel="Inaongeza..."
-          >
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <Field htmlFor="product-name" label="Jina · Name">
-                <Input id="product-name" name="name" required placeholder="Coca-Cola 500ml" />
-              </Field>
-
-              <Field htmlFor="product-unit" label="Kipimo · Unit">
-                <Input
-                  id="product-unit"
-                  name="unitName"
-                  required
-                  list="shoprex-unit-names"
-                  placeholder="Kipande"
-                />
-                <datalist id="shoprex-unit-names">
-                  {unitNames.map((name) => (
-                    <option key={name} value={name} />
-                  ))}
-                </datalist>
-              </Field>
-
-              <Field htmlFor="product-price" label="Bei · Price" hint="Si lazima · optional">
-                <Input
-                  id="product-price"
-                  name="priceTzs"
-                  type="number"
-                  min={0}
-                  step={1}
-                  placeholder="1000"
-                />
-              </Field>
-
-              <Field htmlFor="product-barcode" label="Namba · Barcode" hint="Si lazima · optional">
-                <Input
-                  id="product-barcode"
-                  name="barcode"
-                  inputMode="numeric"
-                  placeholder="EAN-13"
-                />
-              </Field>
-            </div>
-          </ActionForm>
-        ) : (
+      {!isOwner(profile) ? (
+        <Panel title="Ongeza bidhaa · Add a product">
           <OwnerOnlyNote what="Kuongeza bidhaa, kubadilisha bei na kuunganisha namba · Adding products, changing prices, and attaching barcodes" />
-        )}
-      </Panel>
+        </Panel>
+      ) : null}
     </ConsoleShell>
   );
 }

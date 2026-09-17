@@ -1,8 +1,9 @@
 import Link from 'next/link';
-import { PackageIcon, ReceiptIcon } from 'lucide-react';
+import { PackageIcon, PlusIcon, ReceiptIcon } from 'lucide-react';
 import { BranchForm } from '@/components/branch-form';
 import { ConsoleShell } from '@/components/console-shell';
 import { EmptyState, ErrorState, OwnerOnlyNote, Panel } from '@/components/states';
+import { SidePanel } from '@/components/side-panel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -47,12 +48,27 @@ export default async function BranchesPage() {
       current="/owner/branches"
       title="Matawi"
       lede="Kila tawi lina stoo yake, simu zake na mauzo yake."
+      actions={
+        isOwner(profile) ? (
+          <SidePanel
+            trigger={
+              <Button size="sm">
+                <PlusIcon />
+                Ongeza tawi · Add branch
+              </Button>
+            }
+            title="Ongeza tawi · Add a branch"
+          >
+            <BranchForm />
+          </SidePanel>
+        ) : null
+      }
     >
       <Panel title={`Matawi · Branches (${branches.length})`}>
         {branches.length === 0 ? (
           <EmptyState
             title="Hakuna tawi bado · No branches yet"
-            hint="Ongeza tawi lako la kwanza hapa chini."
+            hint="Ongeza tawi lako la kwanza kwa kitufe kilicho juu."
           />
         ) : (
           <Table>
@@ -97,9 +113,11 @@ export default async function BranchesPage() {
         )}
       </Panel>
 
-      <Panel title="Ongeza tawi · Add a branch">
-        {isOwner(profile) ? <BranchForm /> : <OwnerOnlyNote what="Kuongeza tawi · Adding a branch" />}
-      </Panel>
+      {!isOwner(profile) ? (
+        <Panel title="Ongeza tawi · Add a branch">
+          <OwnerOnlyNote what="Kuongeza tawi · Adding a branch" />
+        </Panel>
+      ) : null}
     </ConsoleShell>
   );
 }
