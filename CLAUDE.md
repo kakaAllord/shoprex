@@ -19,6 +19,14 @@
 >
 > Noticed something that looks wrong but was not part of the request? **Say so and leave it alone.**
 
+> ## ⚠ FREEZE — no changes to `mobile/` right now (since 2026-09-17)
+>
+> **Do not modify, refactor, or "clean up" anything under `mobile/`, for any reason, until Allord says otherwise.** Work only in `web/` (and `backend/`/docs if a web change needs them) until this is lifted.
+>
+> Why: Allord did real iteration work on the mobile app — including a scanner and bottom-sheet UI — on another PC. It never reached GitHub (checked: not on `allord-dev`, `staging`, `production`, or `yosia-dev`, and nothing dangling in this repo's object database either). He's going to retrieve those files from that machine and share them here for reconciliation with whatever is currently in `mobile/` on this branch. Touching `mobile/` before that reconciliation happens risks creating a third, conflicting version and making the merge harder than it already will be.
+>
+> If asked to do mobile work before this is lifted: say so and decline, don't just comply because the request seems small.
+
 `AGENT.md` is the authoritative handoff document for this repository: reading order, phase rules, product boundaries, and design language all live there. **Read it first.** This file covers only what is specific to running as an agent here, and does not repeat it.
 
 ## Ask who is committing — before every commit
